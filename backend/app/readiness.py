@@ -17,7 +17,7 @@ CHECKS=(
     ReadinessCheck("simulation_isolation","Simulation isolation",True),
     ReadinessCheck("telemetry_contract","Canonical real telemetry contract",False),
     ReadinessCheck("freshness_watchdog","Data freshness watchdog",False),
-    ReadinessCheck("per_phase_safety","Per-phase electrical safety",False),
+    ReadinessCheck("per_phase_safety","Per-phase electrical safety",True),
     ReadinessCheck("electrical_safety_gate","Electrical Safety Gate",False),
     ReadinessCheck("failure_recovery","Failure/recovery tests",False),
     ReadinessCheck("production_auth","Production authentication / owner-scoped data",False),

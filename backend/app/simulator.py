@@ -30,6 +30,8 @@ class HomeSimulator:
         self.grid_import_wh=0.0
         self.grid_export_wh=0.0
         self.pv_wh=0.0
+        self.ev_pv_wh=0.0
+        self.ev_grid_wh=0.0
 
     def _powers(self,now:datetime)->tuple[float,float,bool,float,int]:
         hour=now.hour+now.minute/60
@@ -62,7 +64,7 @@ class HomeSimulator:
         if grid>=0:self.grid_import_wh+=grid*hours
         else:self.grid_export_wh+=(-grid)*hours
         if charge>0:
-            self.energy_wh+=charge*hours
+            # Attribute EV AC energy by source for simulation analytics. PV first serves the house;\n            # only the remaining PV can supply the EV. Any balance is grid energy.\n            ev_pv=min(charge,max(0.0,pv-house))\n            ev_grid=max(0.0,charge-ev_pv)\n            self.ev_pv_wh+=ev_pv*hours\n            self.ev_grid_wh+=ev_grid*hours\n            self.energy_wh+=charge*hours
             battery_kwh=charge*hours/1000*self.cfg.ac_to_battery_efficiency
             self.soc=min(self.cfg.target_soc_pct,self.soc+(battery_kwh/self.cfg.battery_capacity_kwh*100))
         self.now+=timedelta(seconds=seconds)
@@ -95,5 +97,5 @@ class HomeSimulator:
             "ac_energy_kwh":round(self.energy_wh/1000,3),
             "pv_generated_kwh":round(self.pv_wh/1000,3),
             "grid_import_kwh":round(self.grid_import_wh/1000,3),
-            "grid_export_kwh":round(self.grid_export_wh/1000,3),
+            "grid_export_kwh":round(self.grid_export_wh/1000,3),\n            "ev_pv_energy_kwh":round(self.ev_pv_wh/1000,3),\n            "ev_grid_energy_kwh":round(self.ev_grid_wh/1000,3),
             "target_soc_pct":self.cfg.target_soc_pct,"live_actuation":False}

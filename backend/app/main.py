@@ -192,3 +192,10 @@ async def monday_larnaca_acceptance()->dict:
         "learning_session_count":len(sessions.all()),
         "pwa_ready":True,
     }
+
+
+from .readiness import readiness_payload
+
+@app.get("/api/v1/readiness")
+async def production_readiness()->dict:
+    return readiness_payload()

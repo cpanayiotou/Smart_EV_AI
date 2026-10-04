@@ -1,0 +1,30 @@
+name: CI
+on:
+  pull_request:
+  push:
+    branches: [phase1-evcc-telemetry]
+
+jobs:
+  backend-tests:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install -e ".[dev]"
+      - run: pytest -q
+
+  evcc-demo-config:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validate demo config with upstream evcc
+        run: |
+          docker run --rm -v "$PWD/evcc/evcc.demo.yaml:/etc/evcc.yaml:ro" evcc/evcc:latest evcc --config /etc/evcc.yaml --log error &
+          CID=$!
+          sleep 8
+          kill $CID || true

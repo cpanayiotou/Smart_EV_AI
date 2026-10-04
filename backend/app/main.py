@@ -130,3 +130,26 @@ async def departure_plan()->dict:
     result=build_departure_plan(simulator.now,snapshot)
     return {"plan":asdict(result) if result else None,"mode":"simulation" if settings.simulation_enabled else "read-only-live",
             "actuation_performed":False}
+
+
+class ClosedLoopRequest(BaseModel):
+    trip_distance_km:float=60
+    requested_target_pct:int|None=None
+    approved_once:bool=False
+    advance_minutes:int=60
+
+@app.post("/api/v1/simulation/closed-loop")
+async def simulation_closed_loop(request:ClosedLoopRequest)->dict:
+    before=simulator.snapshot()
+    objective=plan(before,request.trip_distance_km,request.requested_target_pct,request.approved_once)
+    if not objective.allowed:
+        return {"objective":asdict(objective),"executed":False,
+                "reason":"Battery Guardian did not allow the objective.","before":before.model_dump(mode="json"),
+                "after":before.model_dump(mode="json"),"simulation_only":True}
+    applied=simulator.apply_shadow_objective(objective.target_soc_pct)
+    after=simulator.advance(max(1,min(request.advance_minutes,24*60)))
+    return {"objective":asdict(objective),"executed":True,"applied":applied,
+            "before":before.model_dump(mode="json"),"after":after.model_dump(mode="json"),
+            "result":{"soc_delta_pct":round((after.loadpoints[0].vehicle_soc_pct or 0)-(before.loadpoints[0].vehicle_soc_pct or 0),2),
+                      "charged_energy_delta_wh":round((after.loadpoints[0].charged_energy_wh or 0)-(before.loadpoints[0].charged_energy_wh or 0),1)},
+            "simulation_only":True,"evcc_actuation_performed":False}

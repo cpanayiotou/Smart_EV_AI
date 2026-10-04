@@ -1,4 +1,13 @@
 services:
+  evcc:
+    image: evcc/evcc:latest
+    command: ["evcc", "--config", "/etc/evcc.yaml"]
+    volumes:
+      - ./evcc/evcc.demo.yaml:/etc/evcc.yaml:ro
+    ports:
+      - "7070:7070"
+    restart: unless-stopped
+
   api:
     build:
       context: ./backend
@@ -6,6 +15,8 @@ services:
       - .env
     ports:
       - "8080:8080"
+    depends_on:
+      - evcc
     restart: unless-stopped
 
   pwa:

@@ -47,3 +47,29 @@ async def ai_plan(trip_distance_km: float = 60, requested_target_pct: int | None
         "shadow_mode": True,
         "actuation_performed": False,
     }
+
+
+from dataclasses import asdict
+from .learning import SessionStore
+from .cost_agent import advise as cost_advice
+from .efficiency_agent import advise as efficiency_advice
+
+sessions = SessionStore()
+
+@app.get("/api/v1/history")
+async def history() -> dict:
+    return {
+        "summary": sessions.summary(),
+        "sessions": [asdict(x) for x in sessions.all()],
+        "source": "simulation",
+    }
+
+@app.get("/api/v1/agents")
+async def agent_status(required_ac_kwh: float = 20, expected_pv_kwh: float = 12) -> dict:
+    return {
+        "cost": asdict(cost_advice(required_ac_kwh, expected_pv_kwh)),
+        "efficiency": asdict(efficiency_advice(sessions.all())),
+        "battery_guardian": {"status":"active","normal_daily_limit_pct":80},
+        "mode":"shadow",
+        "actuation_performed":False,
+    }

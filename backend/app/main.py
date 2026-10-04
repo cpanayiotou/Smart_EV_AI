@@ -51,6 +51,7 @@ async def ai_plan(trip_distance_km: float = 60, requested_target_pct: int | None
 
 from dataclasses import asdict
 from .learning import SessionStore, ChargingSession
+from .acceptance import run_monday_larnaca_acceptance
 from .cost_agent import advise as cost_advice
 from .efficiency_agent import advise as efficiency_advice
 
@@ -166,3 +167,28 @@ async def simulation_closed_loop(request:ClosedLoopRequest)->dict:
             "result":{"soc_delta_pct":round((after.loadpoints[0].vehicle_soc_pct or 0)-(before.loadpoints[0].vehicle_soc_pct or 0),2),
                       "charged_energy_delta_wh":round((after.loadpoints[0].charged_energy_wh or 0)-(before.loadpoints[0].charged_energy_wh or 0),1)},
             "simulation_only":True,"evcc_actuation_performed":False}
+
+
+@app.post("/api/v1/simulation/acceptance/monday-larnaca")
+async def monday_larnaca_acceptance()->dict:
+    """Run the deterministic milestone and expose its result to history/learning."""
+    result=run_monday_larnaca_acceptance()
+    raw=result["session"]
+    session=ChargingSession(
+        started_at=raw["started_at"],
+        ac_energy_kwh=raw["ac_energy_kwh"],
+        pv_energy_kwh=raw["pv_energy_kwh"],
+        grid_energy_kwh=raw["grid_energy_kwh"],
+        soc_start_pct=raw["soc_start_pct"],
+        soc_end_pct=raw["soc_end_pct"],
+        avg_charge_power_kw=raw["avg_charge_power_kw"],
+        phases=raw["phases"],
+        cost_eur=raw["cost_eur"],
+    )
+    sessions.add(session)
+    return {
+        **result,
+        "history_recorded":True,
+        "learning_session_count":len(sessions.all()),
+        "pwa_ready":True,
+    }

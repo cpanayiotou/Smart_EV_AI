@@ -96,3 +96,15 @@ async def simulation_advance(request:AdvanceRequest)->dict:
 async def simulation_reset()->dict:
     simulator.reset()
     return {"status":simulator.status(),"telemetry":simulator.snapshot().model_dump(mode="json")}
+
+
+from .commute import profile_payload
+
+@app.get("/api/v1/mobility/profile")
+async def mobility_profile()->dict:
+    return {
+        "timezone":"Europe/Nicosia",
+        "profile":profile_payload(),
+        "distance_source":"ABRP planned; unknown route distances are intentionally not guessed",
+        "mode":"simulation",
+    }

@@ -1,0 +1,37 @@
+services:
+  api:
+    build:
+      context: ./backend
+    env_file:
+      - .env
+    ports:
+      - "8080:8080"
+    restart: unless-stopped
+
+  pwa:
+    image: nginx:1.27-alpine
+    volumes:
+      - ./frontend:/usr/share/nginx/html:ro
+      - ./deploy/nginx.conf:/etc/nginx/conf.d/default.conf:ro
+    ports:
+      - "8088:80"
+    depends_on:
+      - api
+    restart: unless-stopped
+
+  mqtt:
+    image: eclipse-mosquitto:2
+    restart: unless-stopped
+
+  db:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_DB: smart_ev_ai
+      POSTGRES_USER: smart_ev_ai
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-change-me}
+    volumes:
+      - smart_ev_ai_db:/var/lib/postgresql/data
+    restart: unless-stopped
+
+volumes:
+  smart_ev_ai_db:

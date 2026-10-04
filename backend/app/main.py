@@ -50,7 +50,7 @@ async def ai_plan(trip_distance_km: float = 60, requested_target_pct: int | None
 
 
 from dataclasses import asdict
-from .learning import SessionStore
+from .learning import SessionStore, ChargingSession
 from .cost_agent import advise as cost_advice
 from .efficiency_agent import advise as efficiency_advice
 
@@ -147,7 +147,16 @@ async def simulation_closed_loop(request:ClosedLoopRequest)->dict:
                 "reason":"Battery Guardian did not allow the objective.","before":before.model_dump(mode="json"),
                 "after":before.model_dump(mode="json"),"simulation_only":True}
     applied=simulator.apply_shadow_objective(objective.target_soc_pct)
-    after=simulator.advance(max(1,min(request.advance_minutes,24*60)))
+    minutes=max(1,min(request.advance_minutes,24*60))
+    after=simulator.advance(minutes)
+    before_lp=before.loadpoints[0]
+    after_lp=after.loadpoints[0]
+    ac_delta=max(0.0,((after_lp.charged_energy_wh or 0)-(before_lp.charged_energy_wh or 0))/1000)
+    if ac_delta>0:
+        sessions.add(ChargingSession(started_at=before.site.timestamp,ac_energy_kwh=round(ac_delta,3),
+            pv_energy_kwh=round(ac_delta,3),grid_energy_kwh=0.0,
+            soc_start_pct=float(before_lp.vehicle_soc_pct or 0),soc_end_pct=float(after_lp.vehicle_soc_pct or 0),
+            avg_charge_power_kw=round(ac_delta/(minutes/60),2),phases=int(after_lp.phases_active or 0),cost_eur=0.0))
     return {"objective":asdict(objective),"executed":True,"applied":applied,
             "before":before.model_dump(mode="json"),"after":after.model_dump(mode="json"),
             "result":{"soc_delta_pct":round((after.loadpoints[0].vehicle_soc_pct or 0)-(before.loadpoints[0].vehicle_soc_pct or 0),2),

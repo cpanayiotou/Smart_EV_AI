@@ -33,7 +33,10 @@ class SessionStore:
             ChargingSession(now,8.6,2.1,6.5,61,70,6.7,3,1.95),
         ]
 
-    def add(self,session:ChargingSession)->None:\n        self._sessions.append(session)\n\n    def all(self)->list[ChargingSession]:
+    def add(self,session:ChargingSession)->None:
+        self._sessions.append(session)
+
+    def all(self)->list[ChargingSession]:
         return list(self._sessions)
 
     def summary(self)->dict:

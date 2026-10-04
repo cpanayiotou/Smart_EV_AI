@@ -32,6 +32,7 @@ class HomeSimulator:
         self.pv_wh=0.0
         self.ev_pv_wh=0.0
         self.ev_grid_wh=0.0
+        self.mobility_required=False
 
     def _powers(self,now:datetime)->tuple[float,float,bool,float,int]:
         hour=now.hour+now.minute/60
@@ -45,14 +46,19 @@ class HomeSimulator:
         surplus=max(0.0,pv-house)
         charge=0.0
         phases=0
-        if plugged and self.soc<self.cfg.target_soc_pct and surplus>=1380:
-            # Simplified evcc-like surplus model; exact real switching remains evcc's job.
-            if surplus<4140:
-                phases=1
-                charge=min(3680.0,surplus) # simulated 1P band
-            else:
+        if plugged and self.soc<self.cfg.target_soc_pct:
+            if self.mobility_required:
+                # Digital-twin model of deadline charging. Real current/phase control stays with evcc.
                 phases=3
-                charge=min(self.cfg.max_ac_charge_w,surplus)
+                charge=min(7000.0,self.cfg.max_ac_charge_w)
+            elif surplus>=1380:
+                # Simplified evcc-like surplus model; exact real switching remains evcc's job.
+                if surplus<4140:
+                    phases=1
+                    charge=min(3680.0,surplus) # simulated 1P band
+                else:
+                    phases=3
+                    charge=min(self.cfg.max_ac_charge_w,surplus)
         return pv,house,plugged,charge,phases
 
     def step(self,seconds:int=60)->TelemetrySnapshot:
@@ -98,12 +104,14 @@ class HomeSimulator:
                 phases_active=phases,session_energy_wh=round(self.energy_wh,1))],
             source="simulator",read_only=True)
 
-    def apply_shadow_objective(self,target_soc_pct:int)->dict:
+    def apply_shadow_objective(self,target_soc_pct:int,mobility_required:bool=False)->dict:
         """Apply an AI objective only to the in-memory digital twin. Never touches evcc or hardware."""
         target=max(0,min(100,int(target_soc_pct)))
         previous=self.cfg.target_soc_pct
         self.cfg.target_soc_pct=float(target)
-        return {"previous_target_soc_pct":previous,"target_soc_pct":target,"simulation_only":True}
+        self.mobility_required=bool(mobility_required)
+        return {"previous_target_soc_pct":previous,"target_soc_pct":target,
+                "mobility_required":self.mobility_required,"simulation_only":True}
 
     def status(self)->dict:
         return {"time":self.now.isoformat(),"soc_pct":round(self.soc,2),

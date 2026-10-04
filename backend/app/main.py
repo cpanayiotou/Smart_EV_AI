@@ -109,3 +109,14 @@ async def mobility_profile()->dict:
         "distance_source":"ABRP planned; unknown route distances are intentionally not guessed",
         "mode":"simulation",
     }
+
+
+from .simulated_routes import payload as simulated_route_payload
+
+@app.get("/api/v1/mobility/simulated-routes")
+async def simulated_routes()->dict:
+    return {
+        "routes":simulated_route_payload(),
+        "warning":"Distances are web-researched simulation values and consumption is an assumption. Replace with ABRP and learned Audi data when connected.",
+        "mode":"simulation",
+    }

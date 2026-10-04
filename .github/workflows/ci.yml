@@ -1,0 +1,68 @@
+name: CI
+on:
+  workflow_dispatch:
+  pull_request:
+  push:
+    branches: [phase1-evcc-telemetry]
+
+jobs:
+  backend-tests:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install -e ".[dev]"
+      - run: pytest -q
+
+  evcc-live-contract:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Start actual upstream evcc with demo-only devices
+        run: docker compose up -d evcc
+      - name: Wait for evcc API
+        run: |
+          for i in {1..30}; do
+            if curl -fsS http://localhost:7070/api/state > /tmp/evcc-state.json; then exit 0; fi
+            sleep 2
+          done
+          docker compose logs evcc
+          exit 1
+      - name: Validate live state contract
+        run: |
+          python - <<'PY'
+          import json
+          s=json.load(open('/tmp/evcc-state.json'))
+          s=s.get('result',s)
+          assert isinstance(s.get('loadpoints'),list) and s['loadpoints'], s
+          lp=s['loadpoints'][0]
+          for key in ('connected','charging','mode','chargePower'):
+              assert key in lp, (key,lp)
+          assert 'homePower' in s and 'pvPower' in s, s.keys()
+          assert ('gridPower' in s) or ('grid' in s), s.keys()
+          print('evcc live state contract OK')
+          PY
+      - name: Exercise demo-only evcc control contract
+        run: |
+          # This CI service uses only evcc demo devices. No physical charger is reachable.
+          curl -fsS -X POST http://localhost:7070/api/loadpoints/1/mode/smart
+          curl -fsS -X POST http://localhost:7070/api/loadpoints/1/maxcurrent/10
+          curl -fsS -X POST http://localhost:7070/api/loadpoints/1/phases/1
+          curl -fsS http://localhost:7070/api/state > /tmp/evcc-after.json
+          python - <<'PY'
+          import json
+          s=json.load(open('/tmp/evcc-after.json'))
+          s=s.get('result',s)
+          lp=s['loadpoints'][0]
+          assert lp['mode']=='smart', lp
+          assert float(lp['maxCurrent'])==10, lp
+          print('evcc demo command contract OK')
+          PY
+      - name: Show evcc logs on failure
+        if: failure()
+        run: docker logs $(docker ps -aq --filter name=evcc | head -1) || true

@@ -1,0 +1,57 @@
+# Real upstream evcc, but demo-only devices. No physical charger is reachable from this config.
+network:
+  schema: http
+  host: 0.0.0.0
+  port: 7070
+
+interval: 10s
+
+meters:
+  - name: demo_grid
+    type: template
+    template: demo-meter
+    usage: grid
+    power: -1800
+    currentL1: 2
+    currentL2: 2
+    currentL3: 2
+
+  - name: demo_pv
+    type: template
+    template: demo-meter
+    usage: pv
+    power: 3200
+    maxacpower: 5000
+
+chargers:
+  - name: demo_peblar
+    type: template
+    template: demo-charger
+    status: B
+    power: 0
+    enabled: false
+    maxcurrent: 16
+    phases1p3p: true
+
+vehicles:
+  - name: demo_audi
+    type: template
+    template: offline
+    title: Audi e-tron 55 (simulation)
+    capacity: 86.5
+
+site:
+  title: Smart EV AI Digital Twin
+  meters:
+    grid: demo_grid
+    pv:
+      - demo_pv
+
+loadpoints:
+  - title: Simulated Peblar
+    charger: demo_peblar
+    vehicle: demo_audi
+    mode: "off"
+    phases: 0
+    minCurrent: 6
+    maxCurrent: 16

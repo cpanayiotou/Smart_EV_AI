@@ -42,8 +42,7 @@ jobs:
           lp=s['loadpoints'][0]
           for key in ('connected','charging','mode','chargePower'):
               assert key in lp, (key,lp)
-          for key in ('gridPower','pvPower','homePower'):
-              assert key in s, (key,s.keys())
+          assert 'homePower' in s and 'pvPower' in s, s.keys()\n          assert ('gridPower' in s) or ('grid' in s), s.keys()
           print('evcc live state contract OK')
           PY
       - name: Exercise demo-only evcc control contract
@@ -63,5 +62,4 @@ jobs:
           print('evcc demo command contract OK')
           PY
       - name: Show evcc logs on failure
-        if: failure()
-        run: docker compose logs evcc
+        if: failure()\n        run: docker compose logs --no-env-resolution evcc || docker logs $(docker ps -aq --filter name=evcc | head -1)

@@ -21,7 +21,7 @@ CHECKS=(
     ReadinessCheck("electrical_safety_gate","Electrical Safety Gate",True),
     ReadinessCheck("failure_recovery","Failure/recovery tests",True),
     ReadinessCheck("production_auth","Production authentication / owner-scoped data",False),
-    ReadinessCheck("command_audit","Command audit trail",False),
+    ReadinessCheck("command_audit","Command audit trail",True),
 )
 
 def readiness_payload()->dict:

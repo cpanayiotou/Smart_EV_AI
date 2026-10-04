@@ -46,6 +46,22 @@ jobs:
               assert key in s, (key,s.keys())
           print('evcc live state contract OK')
           PY
+      - name: Exercise demo-only evcc control contract
+        run: |
+          # This CI service uses only evcc demo devices. No physical charger is reachable.
+          curl -fsS -X POST http://localhost:7070/api/loadpoints/1/mode/smart
+          curl -fsS -X POST http://localhost:7070/api/loadpoints/1/maxcurrent/10
+          curl -fsS -X POST http://localhost:7070/api/loadpoints/1/phases/1
+          curl -fsS http://localhost:7070/api/state > /tmp/evcc-after.json
+          python - <<'PY'
+          import json
+          s=json.load(open('/tmp/evcc-after.json'))
+          s=s.get('result',s)
+          lp=s['loadpoints'][0]
+          assert lp['mode']=='smart', lp
+          assert float(lp['maxCurrent'])==10, lp
+          print('evcc demo command contract OK')
+          PY
       - name: Show evcc logs on failure
         if: failure()
         run: docker compose logs evcc

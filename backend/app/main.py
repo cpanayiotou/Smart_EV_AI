@@ -120,3 +120,13 @@ async def simulated_routes()->dict:
         "warning":"Distances are web-researched simulation values and consumption is an assumption. Replace with ABRP and learned Audi data when connected.",
         "mode":"simulation",
     }
+
+
+from .departure_planner import build_departure_plan
+
+@app.get("/api/v1/mobility/departure-plan")
+async def departure_plan()->dict:
+    snapshot=simulator.snapshot() if settings.simulation_enabled else await evcc.snapshot()
+    result=build_departure_plan(simulator.now,snapshot)
+    return {"plan":asdict(result) if result else None,"mode":"simulation" if settings.simulation_enabled else "read-only-live",
+            "actuation_performed":False}

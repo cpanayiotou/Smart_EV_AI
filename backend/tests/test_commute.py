@@ -18,9 +18,13 @@ def test_sunday_has_no_invented_deadline():
 def test_monday_evening_points_to_tuesday_0730():
     n=next_required_journey(datetime(2026,10,5,18,30,tzinfo=CY))
     assert n["departure"].startswith("2026-10-06T07:30")
-    assert n["route_energy_status"]=="SIMULATED_NOT_ABRP"\n    assert n["distance_km"]==90.0\n    assert n["simulated_trip_kwh"]==22.5
+    assert n["route_energy_status"]=="SIMULATED_NOT_ABRP"
+    assert n["distance_km"]==90.0
+    assert n["simulated_trip_kwh"]==22.5
 
 def test_thursday_evening_points_to_friday_nicosia():
     n=next_required_journey(datetime(2026,10,8,18,30,tzinfo=CY))
     assert n["destination"]=="Stasikratous, Nicosia"
-    assert n["departure"].startswith("2026-10-09T07:30")\n    assert n["distance_km"]==16.0\n    assert n["simulated_trip_kwh"]==4.3
+    assert n["departure"].startswith("2026-10-09T07:30")
+    assert n["distance_km"]==16.0
+    assert n["simulated_trip_kwh"]==4.3

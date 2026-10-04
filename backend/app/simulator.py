@@ -92,7 +92,14 @@ class HomeSimulator:
                 phases_active=phases,session_energy_wh=round(self.energy_wh,1))],
             source="simulator",read_only=True)
 
-    def apply_shadow_objective(self,target_soc_pct:int)->dict:\n        """Apply an AI objective only to the in-memory digital twin. Never touches evcc or hardware."""\n        target=max(0,min(100,int(target_soc_pct)))\n        previous=self.cfg.target_soc_pct\n        self.cfg.target_soc_pct=float(target)\n        return {"previous_target_soc_pct":previous,"target_soc_pct":target,"simulation_only":True}\n\n    def status(self)->dict:
+    def apply_shadow_objective(self,target_soc_pct:int)->dict:
+        """Apply an AI objective only to the in-memory digital twin. Never touches evcc or hardware."""
+        target=max(0,min(100,int(target_soc_pct)))
+        previous=self.cfg.target_soc_pct
+        self.cfg.target_soc_pct=float(target)
+        return {"previous_target_soc_pct":previous,"target_soc_pct":target,"simulation_only":True}
+
+    def status(self)->dict:
         return {"time":self.now.isoformat(),"soc_pct":round(self.soc,2),
             "ac_energy_kwh":round(self.energy_wh/1000,3),
             "pv_generated_kwh":round(self.pv_wh/1000,3),

@@ -19,7 +19,7 @@ CHECKS=(
     ReadinessCheck("freshness_watchdog","Data freshness watchdog",False),
     ReadinessCheck("per_phase_safety","Per-phase electrical safety",True),
     ReadinessCheck("electrical_safety_gate","Electrical Safety Gate",False),
-    ReadinessCheck("failure_recovery","Failure/recovery tests",False),
+    ReadinessCheck("failure_recovery","Failure/recovery tests",True),
     ReadinessCheck("production_auth","Production authentication / owner-scoped data",False),
     ReadinessCheck("command_audit","Command audit trail",False),
 )

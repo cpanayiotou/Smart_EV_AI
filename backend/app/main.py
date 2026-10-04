@@ -73,3 +73,26 @@ async def agent_status(required_ac_kwh: float = 20, expected_pv_kwh: float = 12)
         "mode":"shadow",
         "actuation_performed":False,
     }
+
+
+from pydantic import BaseModel
+
+class AdvanceRequest(BaseModel):
+    minutes:int=60
+
+@app.get("/api/v1/simulation")
+async def simulation_status()->dict:
+    return {"status":simulator.status(),"telemetry":simulator.snapshot().model_dump(mode="json")}
+
+@app.post("/api/v1/simulation/advance")
+async def simulation_advance(request:AdvanceRequest)->dict:
+    minutes=max(1,min(request.minutes,24*60))
+    snapshot=simulator.advance(minutes)
+    objective=plan(snapshot)
+    return {"status":simulator.status(),"telemetry":snapshot.model_dump(mode="json"),
+            "shadow_plan":asdict(objective)}
+
+@app.post("/api/v1/simulation/reset")
+async def simulation_reset()->dict:
+    simulator.reset()
+    return {"status":simulator.status(),"telemetry":simulator.snapshot().model_dump(mode="json")}

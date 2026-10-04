@@ -140,7 +140,9 @@ class ClosedLoopRequest(BaseModel):
 
 @app.post("/api/v1/simulation/closed-loop")
 async def simulation_closed_loop(request:ClosedLoopRequest)->dict:
-    before=simulator.snapshot()\n    before_status=simulator.status()\n    objective=plan(before,request.trip_distance_km,request.requested_target_pct,request.approved_once)
+    before=simulator.snapshot()
+    before_status=simulator.status()
+    objective=plan(before,request.trip_distance_km,request.requested_target_pct,request.approved_once)
     if not objective.allowed:
         return {"objective":asdict(objective),"executed":False,
                 "reason":"Battery Guardian did not allow the objective.","before":before.model_dump(mode="json"),
@@ -151,7 +153,12 @@ async def simulation_closed_loop(request:ClosedLoopRequest)->dict:
     before_lp=before.loadpoints[0]
     after_lp=after.loadpoints[0]
     ac_delta=max(0.0,((after_lp.charged_energy_wh or 0)-(before_lp.charged_energy_wh or 0))/1000)
-    if ac_delta>0:\n        after_status=simulator.status()\n        pv_delta=max(0.0,after_status["ev_pv_energy_kwh"]-before_status["ev_pv_energy_kwh"])\n        grid_delta=max(0.0,after_status["ev_grid_energy_kwh"]-before_status["ev_grid_energy_kwh"])\n        sessions.add(ChargingSession(started_at=before.site.timestamp,ac_energy_kwh=round(ac_delta,3),\n            pv_energy_kwh=round(pv_delta,3),grid_energy_kwh=round(grid_delta,3),
+    if ac_delta>0:
+        after_status=simulator.status()
+        pv_delta=max(0.0,after_status["ev_pv_energy_kwh"]-before_status["ev_pv_energy_kwh"])
+        grid_delta=max(0.0,after_status["ev_grid_energy_kwh"]-before_status["ev_grid_energy_kwh"])
+        sessions.add(ChargingSession(started_at=before.site.timestamp,ac_energy_kwh=round(ac_delta,3),
+            pv_energy_kwh=round(pv_delta,3),grid_energy_kwh=round(grid_delta,3),
             soc_start_pct=float(before_lp.vehicle_soc_pct or 0),soc_end_pct=float(after_lp.vehicle_soc_pct or 0),
             avg_charge_power_kw=round(ac_delta/(minutes/60),2),phases=int(after_lp.phases_active or 0),cost_eur=0.0))
     return {"objective":asdict(objective),"executed":True,"applied":applied,

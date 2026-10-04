@@ -17,6 +17,30 @@ class EvccClient:
             # evcc responses may wrap the state in "result".
             return payload.get("result", payload)
 
+    async def demo_command(self, mode: str, max_current_a: int, phases: int) -> dict[str, Any]:
+        """Execute commands only when the explicit demo-write gate is enabled.
+
+        This adapter is for the isolated upstream-evcc demo runtime used by CI.
+        Production/physical charger actuation remains disabled by default.
+        """
+        if not settings.evcc_write_enabled:
+            raise RuntimeError("evcc write gate is disabled")
+        if mode not in {"off", "smart", "now"}:
+            raise ValueError("unsupported evcc mode")
+        if not 6 <= max_current_a <= 16:
+            raise ValueError("max current must be 6..16 A")
+        if phases not in {0, 1, 3}:
+            raise ValueError("phases must be 0, 1 or 3")
+        async with httpx.AsyncClient(timeout=settings.evcc_timeout_seconds) as client:
+            for path in (
+                f"/api/loadpoints/1/mode/{mode}",
+                f"/api/loadpoints/1/maxcurrent/{max_current_a}",
+                f"/api/loadpoints/1/phases/{phases}",
+            ):
+                response = await client.post(f"{self.base_url}{path}")
+                response.raise_for_status()
+        return await self.state()
+
     async def snapshot(self) -> TelemetrySnapshot:
         raw = await self.state()
         grid = _num(raw.get("gridPower"))

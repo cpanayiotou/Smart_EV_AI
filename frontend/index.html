@@ -1,0 +1,57 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="theme-color" content="#0b172a" />
+  <link rel="manifest" href="/manifest.webmanifest" />
+  <title>Smart EV AI</title>
+  <style>
+    :root{font-family:Inter,system-ui,sans-serif;color:#eaf2ff;background:#07111f}
+    body{margin:0;background:linear-gradient(180deg,#07111f,#10243a);min-height:100vh}
+    main{max-width:760px;margin:auto;padding:24px}
+    .card{background:#10253a;border:1px solid #29445c;border-radius:22px;padding:20px;margin:14px 0}
+    .grid{display:grid;grid-template-columns:repeat(2,1fr);gap:12px}
+    .metric{background:#0b1b2c;border-radius:16px;padding:14px}
+    .value{font-size:1.7rem;font-weight:700}.muted{color:#9fb2c5}
+    .soc{height:16px;background:#263c50;border-radius:9px;overflow:hidden}.soc span{display:block;height:100%;width:0;background:#5ccf88}
+    @media(min-width:650px){.grid{grid-template-columns:repeat(4,1fr)}}
+  </style>
+</head>
+<body><main>
+  <h1>Smart EV AI</h1><p class="muted">Home energy + Audi charging</p>
+  <section class="card">
+    <h2>Live Energy</h2>
+    <div class="grid">
+      <div class="metric">Solar<div class="value" id="pv">--</div></div>
+      <div class="metric">Home<div class="value" id="home">--</div></div>
+      <div class="metric">Grid<div class="value" id="grid">--</div></div>
+      <div class="metric">Audi<div class="value" id="ev">--</div></div>
+    </div>
+  </section>
+  <section class="card">
+    <h2>Audi e-tron</h2>
+    <div class="value"><span id="soc">--</span>%</div>
+    <div class="soc"><span id="socbar"></span></div>
+    <p class="muted" id="status">Waiting for evcc telemetry…</p>
+  </section>
+  <section class="card">
+    <h2>AI Plan</h2>
+    <p>Phase 1 is observation only. Battery Guardian normal daily limit: <b>80%</b>.</p>
+    <p class="muted">No AI charger commands are enabled yet.</p>
+  </section>
+<script>
+const kw=v=>v==null?"--":(v/1000).toFixed(2)+" kW";
+async function refresh(){
+ try{
+  const d=await fetch("/api/v1/telemetry").then(r=>{if(!r.ok)throw Error();return r.json()});
+  const lp=d.loadpoints[0]||{};
+  pv.textContent=kw(d.site.pv_power_w); home.textContent=kw(d.site.home_power_w);
+  grid.textContent=kw(d.site.grid_power_w); ev.textContent=kw(lp.charge_power_w);
+  soc.textContent=lp.vehicle_soc_pct??"--"; socbar.style.width=(lp.vehicle_soc_pct??0)+"%";
+  status.textContent=lp.charging?"Charging":lp.connected?"Connected":"Not connected";
+ }catch(e){status.textContent="evcc telemetry unavailable";}
+}
+refresh(); setInterval(refresh,5000);
+if("serviceWorker" in navigator) navigator.serviceWorker.register("/sw.js");
+</script></main></body></html>

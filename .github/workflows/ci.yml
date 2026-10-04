@@ -18,13 +18,34 @@ jobs:
       - run: pip install -e ".[dev]"
       - run: pytest -q
 
-  evcc-demo-config:
+  evcc-live-contract:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Validate demo config with upstream evcc
+      - name: Start actual upstream evcc with demo-only devices
+        run: docker compose up -d evcc
+      - name: Wait for evcc API
         run: |
-          docker run --rm -v "$PWD/evcc/evcc.demo.yaml:/etc/evcc.yaml:ro" evcc/evcc:latest evcc --config /etc/evcc.yaml --log error &
-          CID=$!
-          sleep 8
-          kill $CID || true
+          for i in {1..30}; do
+            if curl -fsS http://localhost:7070/api/state > /tmp/evcc-state.json; then exit 0; fi
+            sleep 2
+          done
+          docker compose logs evcc
+          exit 1
+      - name: Validate live state contract
+        run: |
+          python - <<'PY'
+          import json
+          s=json.load(open('/tmp/evcc-state.json'))
+          s=s.get('result',s)
+          assert isinstance(s.get('loadpoints'),list) and s['loadpoints'], s
+          lp=s['loadpoints'][0]
+          for key in ('connected','charging','mode','chargePower'):
+              assert key in lp, (key,lp)
+          for key in ('gridPower','pvPower','homePower'):
+              assert key in s, (key,s.keys())
+          print('evcc live state contract OK')
+          PY
+      - name: Show evcc logs on failure
+        if: failure()
+        run: docker compose logs evcc

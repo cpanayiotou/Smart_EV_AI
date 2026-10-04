@@ -19,7 +19,11 @@ class EvccClient:
 
     async def snapshot(self) -> TelemetrySnapshot:
         raw = await self.state()
-        grid = _nested(raw, "grid", "power")
+        grid = _num(raw.get("gridPower"))
+        # Current evcc /api/state exposes top-level gridPower/pvPower/homePower.
+        # Keep legacy nested-grid fallback for fixtures/older states only.
+        if grid is None:
+            grid = _num(_nested(raw, "grid", "power"))
         site = SiteTelemetry(
             home_power_w=_num(raw.get("homePower")),
             pv_power_w=_num(raw.get("pvPower")),
@@ -38,7 +42,7 @@ class EvccClient:
                 mode=lp.get("mode"),
                 charge_power_w=_num(lp.get("chargePower")),
                 charged_energy_wh=_num(lp.get("chargedEnergy")),
-                vehicle_soc_pct=_num(lp.get("vehicleSoc")),
+                vehicle_soc_pct=_num(lp.get("vehicleSoc") if lp.get("vehicleSoc") is not None else lp.get("vehicleSoC")),
                 vehicle_range_km=_num(lp.get("vehicleRange")),
                 phases_active=_int(lp.get("phasesActive")),
                 session_energy_wh=_num(lp.get("sessionEnergy")),

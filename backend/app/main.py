@@ -29,3 +29,21 @@ async def safety() -> dict[str, object]:
     return {"battery_guardian":"enabled-policy-design","normal_daily_soc_limit_pct":80,
             "simulation":settings.simulation_enabled,"live_actuation":False,
             "reason":"Development validates simulation and telemetry before any AI write path is enabled."}
+
+
+from .orchestrator import plan
+
+@app.get("/api/v1/plan")
+async def ai_plan(trip_distance_km: float = 60, requested_target_pct: int | None = None,
+                  approved_once: bool = False) -> dict:
+    snapshot = simulator.snapshot() if settings.simulation_enabled else await evcc.snapshot()
+    objective = plan(snapshot, trip_distance_km, requested_target_pct, approved_once)
+    return {
+        "target_soc_pct": objective.target_soc_pct,
+        "mode": objective.mode,
+        "approval_required": objective.approval_required,
+        "allowed": objective.allowed,
+        "explanation": objective.explanation,
+        "shadow_mode": True,
+        "actuation_performed": False,
+    }

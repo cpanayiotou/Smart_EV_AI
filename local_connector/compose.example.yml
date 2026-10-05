@@ -1,0 +1,13 @@
+services:
+  smart-ev-connector:
+    build: .
+    container_name: smart-ev-connector
+    network_mode: host
+    environment:
+      EVCC_URL: http://127.0.0.1:7070
+      CONNECTOR_PORT: "7080"
+      EVCC_TIMEOUT_SECONDS: "5"
+    restart: unless-stopped
+    read_only: true
+    security_opt:
+      - no-new-privileges:true

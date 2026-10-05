@@ -7,6 +7,12 @@ services:
       EVCC_URL: http://127.0.0.1:7070
       CONNECTOR_PORT: "7080"
       EVCC_TIMEOUT_SECONDS: "5"
+      # Required once the Smart EV cloud pairing endpoints are deployed:
+      SMART_EV_CLOUD_URL: https://YOUR-SMART-EV-CLOUD
+      SMART_EV_PAIRING_CODE: ""
+      # After first pairing, persist the returned token in a secret store and
+      # provide it as SMART_EV_CONNECTOR_TOKEN instead of reusing a pairing code.
+      SMART_EV_CONNECTOR_TOKEN: ""
     restart: unless-stopped
     read_only: true
     security_opt:

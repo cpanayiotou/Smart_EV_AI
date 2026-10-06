@@ -1,7 +1,6 @@
 """Combined local HTTP health service + outbound Smart EV cloud pairing."""
 from __future__ import annotations
 
-import os
 import threading
 
 import app
@@ -27,9 +26,10 @@ if __name__ == "__main__":
     print(f"Local diagnostics listening on {app.LISTEN_HOST}:{app.LISTEN_PORT}")
 
     token = pairing.CONNECTOR_TOKEN
+    poll_seconds = pairing.POLL_SECONDS
     if not token:
-        token = pairing.pair()
-        # Deliberately don't print the token. Production packaging will persist it
-        # in a secret store; an environment token can be supplied on restart.
+        token, poll_seconds = pairing.pair()
+        # Deliberately don't print the token. Production packaging must persist it
+        # in a secret store and provide SMART_EV_CONNECTOR_TOKEN on restart.
         print("Pairing succeeded. Store the connector token securely for restart.")
-    pairing.run(token, state_payload)
+    pairing.run(token, state_payload, health_reader=app.health, poll_seconds=poll_seconds)

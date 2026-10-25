@@ -5,15 +5,17 @@ services:
     network_mode: host
     environment:
       EVCC_URL: http://127.0.0.1:7070
+      # Default is safe for SSH tunnelling. For trusted LAN access, set the Pi's fixed LAN IP.
+      CONNECTOR_HOST: ${CONNECTOR_HOST:-127.0.0.1}
       CONNECTOR_PORT: "7080"
+      CONNECTOR_DATA_DIR: /data
       EVCC_TIMEOUT_SECONDS: "5"
-      # Required once the Smart EV cloud pairing endpoints are deployed:
-      SMART_EV_CLOUD_URL: https://YOUR-SMART-EV-CLOUD
-      SMART_EV_PAIRING_CODE: ""
-      # After first pairing, persist the returned token in a secret store and
-      # provide it as SMART_EV_CONNECTOR_TOKEN instead of reusing a pairing code.
-      SMART_EV_CONNECTOR_TOKEN: ""
+    volumes:
+      - connector-data:/data
     restart: unless-stopped
     read_only: true
+    cap_drop: [ALL]
     security_opt:
       - no-new-privileges:true
+volumes:
+  connector-data:

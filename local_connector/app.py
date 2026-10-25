@@ -1,4 +1,4 @@
-"""Smart EV Local Connector — read-only evcc bridge.
+"""Smart EV Local Connector â€” read-only evcc bridge.
 
 This service intentionally supports GET-only access to evcc. It never sends
 charger-control commands. The upstream /api/state payload is passed through
@@ -17,7 +17,7 @@ from ipaddress import ip_address
 from socket import gethostbyname
 from typing import Any
 
-EVCC_URL = os.getenv("EVCC_URL", "http://evcc.local:7070").rstrip("/")
+EVCC_URL = os.getenv("EVCC_URL", "http://127.0.0.1:7070").rstrip("/")
 LISTEN_HOST = os.getenv("CONNECTOR_HOST", "0.0.0.0")
 LISTEN_PORT = int(os.getenv("CONNECTOR_PORT", "7080"))
 TIMEOUT = float(os.getenv("EVCC_TIMEOUT_SECONDS", "5"))
@@ -47,7 +47,9 @@ def _evcc_get(path: str) -> tuple[int, Any, float]:
     started = time.monotonic()
     req = urllib.request.Request(url, method="GET", headers={"Accept": "application/json"})
     try:
-        with urllib.request.urlopen(req, timeout=TIMEOUT) as response:
+        from pairing import NoRedirect
+        opener = urllib.request.build_opener(urllib.request.ProxyHandler({}), NoRedirect())
+        with opener.open(req, timeout=TIMEOUT) as response:
             raw = response.read()
             latency_ms = (time.monotonic() - started) * 1000
             return response.status, json.loads(raw), latency_ms
@@ -75,7 +77,7 @@ def health() -> dict[str, Any]:
             "status": "offline",
             "verified_evcc": False,
             "evcc_url": EVCC_URL,
-            "error": str(exc),
+            "error": "evcc_unavailable",
         }
 
 
@@ -109,7 +111,7 @@ class Handler(BaseHTTPRequestHandler):
                     "state": state,
                 })
             except Exception as exc:
-                self._json(502, {"status": "offline", "error": str(exc)})
+                self._json(502, {"status": "offline", "error": "evcc_unavailable"})
             return
         self._json(404, {"error": "not_found"})
 

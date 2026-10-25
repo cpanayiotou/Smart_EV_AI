@@ -1,35 +1,31 @@
-"""Combined local HTTP health service + outbound Smart EV cloud pairing."""
-from __future__ import annotations
-
+"""LAN setup service and outbound read-only cloud worker."""
+import os
 import threading
-
 import app
 import pairing
+from setup_web import Handler, Setup, local_address
 
 
 def state_payload():
-    status, state, latency = app._evcc_get("/api/state")
+    status, state, latency = app._evcc_get('/api/state')
     if status != 200:
-        raise RuntimeError(f"evcc returned HTTP {status}")
-    return {
-        "source": "evcc",
-        "read_only": True,
-        "observed_at_unix": app.time.time(),
-        "latency_ms": round(latency, 1),
-        "state": state,
-    }
+        raise RuntimeError('evcc unavailable')
+    return {'source': 'evcc', 'read_only': True, 'observed_at_unix': app.time.time(),
+            'latency_ms': round(latency, 1), 'state': state}
 
 
-if __name__ == "__main__":
-    server = app.ThreadingHTTPServer((app.LISTEN_HOST, app.LISTEN_PORT), app.Handler)
-    threading.Thread(target=server.serve_forever, daemon=True).start()
-    print(f"Local diagnostics listening on {app.LISTEN_HOST}:{app.LISTEN_PORT}")
+def start_worker(token, interval, callback):
+    threading.Thread(target=pairing.run, args=(token, state_payload),
+                     kwargs={'health_reader': app.health, 'poll_seconds': interval,
+                             'status_callback': callback}, daemon=True).start()
 
-    token = pairing.CONNECTOR_TOKEN
-    poll_seconds = pairing.POLL_SECONDS
-    if not token:
-        token, poll_seconds = pairing.pair()
-        # Deliberately don't print the token. Production packaging must persist it
-        # in a secret store and provide SMART_EV_CONNECTOR_TOKEN on restart.
-        print("Pairing succeeded. Store the connector token securely for restart.")
-    pairing.run(token, state_payload, health_reader=app.health, poll_seconds=poll_seconds)
+
+if __name__ == '__main__':
+    host = os.getenv('CONNECTOR_HOST', '127.0.0.1')
+    if not local_address(host):
+        raise SystemExit('CONNECTOR_HOST must be an explicit loopback or private LAN IP')
+    state = Setup(os.getenv('CONNECTOR_DATA_DIR', '/data'), start_worker)
+    server = app.ThreadingHTTPServer((host, app.LISTEN_PORT), Handler)
+    server.setup_state = state
+    print('Smart EV read-only setup service ready; use the local setup-password file.')
+    server.serve_forever()

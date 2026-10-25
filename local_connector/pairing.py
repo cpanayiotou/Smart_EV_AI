@@ -11,6 +11,7 @@ import ssl
 import time
 import urllib.error
 import urllib.request
+import urllib.parse
 from typing import Any, Callable
 
 CLOUD_URL = os.getenv("SMART_EV_CLOUD_URL", "").rstrip("/")
@@ -22,17 +23,34 @@ PROTOCOL = "0.2"
 ALLOWED_COMMANDS = {"evcc.health", "evcc.state"}
 
 
+class NoRedirect(urllib.request.HTTPRedirectHandler):
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        raise ValueError("Cloud redirects are not allowed")
+
+
+def validate_cloud_url(url: str) -> str:
+    parsed = urllib.parse.urlsplit(url)
+    if (parsed.scheme != "https" or not parsed.hostname or parsed.username or
+            parsed.password or parsed.query or parsed.fragment or parsed.path not in ("", "/")):
+        raise ValueError("Enter an HTTPS cloud origin without credentials, path or query")
+    if parsed.port not in (None, 443):
+        raise ValueError("Cloud HTTPS must use port 443")
+    return url.rstrip("/")
+
+
 def _request(path: str, method: str = "GET", body: dict[str, Any] | None = None,
              token: str | None = None) -> dict[str, Any]:
-    if not CLOUD_URL.startswith("https://"):
+    if not validate_cloud_url(CLOUD_URL):
         raise ValueError("SMART_EV_CLOUD_URL must use HTTPS")
     headers = {"Accept": "application/json", "Content-Type": "application/json"}
     if token:
         headers["Authorization"] = f"Bearer {token}"
     data = json.dumps(body).encode() if body is not None else None
     req = urllib.request.Request(f"{CLOUD_URL}{path}", data=data, method=method, headers=headers)
-    with urllib.request.urlopen(req, timeout=TIMEOUT, context=ssl.create_default_context()) as response:
-        return json.loads(response.read())
+    opener = urllib.request.build_opener(urllib.request.ProxyHandler({}), NoRedirect(),
+                                         urllib.request.HTTPSHandler(context=ssl.create_default_context()))
+    with opener.open(req, timeout=TIMEOUT) as response:
+        return json.loads(response.read(1048577))
 
 
 def pair() -> tuple[str, int]:
@@ -70,13 +88,14 @@ def _result(token: str, request_id: str, command: str, ok: bool,
 
 def run(token: str, state_reader: Callable[[], dict[str, Any]],
         health_reader: Callable[[], dict[str, Any]] | None = None,
-        poll_seconds: int = POLL_SECONDS) -> None:
+        poll_seconds: int = POLL_SECONDS, status_callback=lambda status: None) -> None:
     """Poll cloud for read-only work using the deployed cloud v0.2 contract."""
     interval = max(5, poll_seconds)
     while True:
         try:
             work = _request("/api/public/local-connectors/work", token=token)
             interval = max(5, int(work.get("poll_interval_s", interval)))
+            status_callback("online")
             requests = work.get("requests", [])
             if not isinstance(requests, list):
                 raise ValueError("cloud work response requests must be a list")
@@ -106,7 +125,7 @@ def run(token: str, state_reader: Callable[[], dict[str, Any]],
                 except Exception as exc:
                     latency = (time.monotonic() - started) * 1000
                     _result(token, request_id, command, False,
-                            error=str(exc), latency_ms=latency)
-        except (urllib.error.URLError, TimeoutError, ValueError) as exc:
-            print(f"[pairing] cloud unavailable: {exc}")
+                            error="local_read_failed", latency_ms=latency)
+        except Exception:
+            status_callback("unavailable")
         time.sleep(interval)

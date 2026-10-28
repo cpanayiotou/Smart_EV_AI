@@ -1,0 +1,4 @@
+aiohttp>=3.13.5,<3.14
+beautifulsoup4>=4.15.0,<5
+certifi>=2026.5.20
+tenacity>=9.1.4,<10

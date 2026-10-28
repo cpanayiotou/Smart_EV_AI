@@ -1,0 +1,16 @@
+# Merge into your existing vehicles list only after a successful Audi probe.
+# This is a fragment, not a replacement for your evcc configuration.
+vehicles:
+  - name: audi_bridge
+    type: custom
+    title: Audi e-tron
+    # capacity: <confirmed usable battery capacity in kWh>
+    soc:
+      source: http
+      uri: http://127.0.0.1:7081/soc
+      timeout: 5s
+    # Optional: enable only if /range returns a fresh numeric reading.
+    # range:
+    #   source: http
+    #   uri: http://127.0.0.1:7081/range
+    #   timeout: 5s

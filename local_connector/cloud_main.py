@@ -10,8 +10,9 @@ def state_payload():
     status, state, latency = app._evcc_get('/api/state')
     if status != 200:
         raise RuntimeError('evcc unavailable')
-    return {'source': 'evcc', 'read_only': True, 'observed_at_unix': app.time.time(),
-            'latency_ms': round(latency, 1), 'state': state}
+    if not isinstance(state, dict):
+        raise ValueError('Invalid evcc state response')
+    return state
 
 
 def start_worker(token, interval, callback):

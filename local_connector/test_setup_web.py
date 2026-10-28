@@ -123,13 +123,11 @@ class WizardTests(unittest.TestCase):
     def test_unknown_cloud_work_never_reads_evcc(self):
         reader = Mock()
         with patch('pairing._request') as request, patch('pairing.time.sleep', side_effect=InterruptedError):
-            request.side_effect = [{'requests': [{'request_id': 'r', 'command': 'charge_start'}]}, {}]
+            request.side_effect = [{'requests': [{'id': 'r', 'command': 'charge_start'}]}, {}]
             with self.assertRaises(InterruptedError):
                 pairing.run('test-token', reader)
             reader.assert_not_called()
-            result = request.call_args.args[2]
-            self.assertFalse(result['ok'])
-            self.assertEqual(result['error'], 'unsupported_read_only_command')
+            self.assertEqual(request.call_count, 1)  # No read or result for forbidden work.
 
     def test_cloud_origins_and_redirects(self):
         for url in ['http://cloud.example', 'https://user:pass@cloud.example', 'https://cloud.example/path', 'https://cloud.example?secret=x', 'https://cloud.example:444']:

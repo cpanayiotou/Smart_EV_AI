@@ -14,7 +14,7 @@ class PairingTests(unittest.TestCase):
             with self.assertRaises(ValueError):
                 pairing._request("/x")
 
-    def test_pair_matches_deployed_contract_and_declares_read_only(self):
+    def test_pair_matches_cloud_strict_schema(self):
         with patch.object(pairing, "PAIRING_CODE", "ABC"), patch.object(pairing, "_request") as request:
             request.return_value = {
                 "protocol": "0.2", "connector_id": "id", "token": "secret",
@@ -23,8 +23,7 @@ class PairingTests(unittest.TestCase):
             self.assertEqual(pairing.pair(), ("secret", 20))
             self.assertEqual(request.call_args.args[0], "/api/public/local-connectors/pair")
             body = request.call_args.args[2]
-            self.assertTrue(body["read_only"])
-            self.assertEqual(body["capabilities"], ["evcc.health", "evcc.state"])
+            self.assertEqual(body, {"code": "ABC", "version": "0.2"})
 
     def test_result_matches_deployed_contract(self):
         with patch.object(pairing, "_request") as request:
@@ -35,6 +34,31 @@ class PairingTests(unittest.TestCase):
             self.assertEqual(body["command"], "evcc.state")
             self.assertEqual(body["data"], {"x": 1})
             self.assertNotIn("payload", body)
+            self.assertEqual(body["latency_ms"], 12)
+            self.assertIsInstance(body["latency_ms"], int)
+
+    def test_cloud_work_id_and_raw_state_roundtrip(self):
+        from cloud_main import state_payload
+        state = {"version": "0.1", "loadpoints": [{"vehicleSoc": 64, "charging": False}]}
+        request_id = '00000000-0000-4000-8000-000000000001'
+        with patch('app._evcc_get', return_value=(200, state, 1.2)):
+            self.assertEqual(state_payload(), state)
+        with patch.object(pairing, '_request') as request, patch.object(pairing.time, 'sleep', side_effect=InterruptedError):
+            request.side_effect = [{'requests': [{'id': request_id, 'command': 'evcc.state', 'params': {}}]}, {'ok': True}]
+            with self.assertRaises(InterruptedError):
+                pairing.run('token', lambda: state)
+            body = request.call_args.args[2]
+            self.assertEqual(body['request_id'], request_id)
+            self.assertEqual(body['data'], state)
+            self.assertTrue(body['ok'])
+            self.assertIsInstance(body['latency_ms'], int)
+
+    def test_failed_result_uses_cloud_error_object(self):
+        with patch.object(pairing, '_request') as request:
+            pairing._result('token', 'id', 'evcc.state', False, error='unreachable', latency_ms=1.6)
+            body = request.call_args.args[2]
+            self.assertEqual(body['error'], {'code': 'unreachable'})
+            self.assertEqual(body['latency_ms'], 2)
 
     def test_no_control_commands_in_allowlist(self):
         self.assertEqual(pairing.ALLOWED_COMMANDS, {"evcc.health", "evcc.state"})

@@ -64,10 +64,8 @@ def pair() -> tuple[str, int]:
     if not PAIRING_CODE:
         raise ValueError("SMART_EV_PAIRING_CODE is required for first pairing")
     result = _request("/api/public/local-connectors/pair", "POST", {
-        "pairing_code": PAIRING_CODE,
-        "connector_version": PROTOCOL,
-        "capabilities": sorted(ALLOWED_COMMANDS),
-        "read_only": True,
+        "code": PAIRING_CODE,
+        "version": PROTOCOL,
     })
     if not isinstance(result, dict):
         raise PairingResponseError('cloud_invalid_response', 'Cloud pairing response must be a JSON object.')
@@ -89,9 +87,9 @@ def _result(token: str, request_id: str, command: str, ok: bool,
     if data is not None:
         body["data"] = data
     if error is not None:
-        body["error"] = error
+        body["error"] = {"code": error if error in {"auth_required", "unreachable", "timeout", "invalid_response"} else "unreachable"}
     if latency_ms is not None:
-        body["latency_ms"] = round(latency_ms, 1)
+        body["latency_ms"] = max(0, min(600000, round(latency_ms)))
     _request("/api/public/local-connectors/result", "POST", body, token=token)
 
 
@@ -113,12 +111,10 @@ def run(token: str, state_reader: Callable[[], dict[str, Any]],
                 if not isinstance(item, dict):
                     continue
                 command = item.get("command")
-                request_id = item.get("request_id")
+                request_id = item.get("id")
                 if not isinstance(command, str) or not isinstance(request_id, str):
                     continue
                 if command not in ALLOWED_COMMANDS:
-                    _result(token, request_id, command, False,
-                            error="unsupported_read_only_command")
                     continue
 
                 started = time.monotonic()
@@ -134,7 +130,7 @@ def run(token: str, state_reader: Callable[[], dict[str, Any]],
                 except Exception as exc:
                     latency = (time.monotonic() - started) * 1000
                     _result(token, request_id, command, False,
-                            error="local_read_failed", latency_ms=latency)
+                            error="unreachable", latency_ms=latency)
         except Exception:
             status_callback("unavailable")
         time.sleep(interval)

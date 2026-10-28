@@ -1,0 +1,22 @@
+services:
+  smart-ev-connector:
+    build: .
+    container_name: smart-ev-connector
+    network_mode: host
+    environment:
+      EVCC_URL: http://127.0.0.1:7070
+      # Listen on LAN interfaces; HTTP requests remain restricted to local clients.
+      CONNECTOR_HOST: ${CONNECTOR_HOST:-0.0.0.0}
+      CONNECTOR_PORT: "7080"
+      CONNECTOR_DATA_DIR: /data
+      CONNECTOR_ALLOW_CONTROL: ${CONNECTOR_ALLOW_CONTROL:-false}
+      EVCC_TIMEOUT_SECONDS: "5"
+    volumes:
+      - connector-data:/data
+    restart: unless-stopped
+    read_only: true
+    cap_drop: [ALL]
+    security_opt:
+      - no-new-privileges:true
+volumes:
+  connector-data:

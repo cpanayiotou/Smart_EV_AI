@@ -1,0 +1,151 @@
+import http.client
+import json
+import socket
+import ssl
+import urllib.error
+from pathlib import Path
+import tempfile
+import threading
+import unittest
+from unittest.mock import Mock, patch
+import app
+import pairing
+from setup_web import Handler, Setup, local_address
+
+
+class WizardTests(unittest.TestCase):
+    def setUp(self):
+        self.directory = tempfile.TemporaryDirectory()
+        self.worker = Mock()
+        self.state = Setup(self.directory.name, self.worker)
+        self.server = app.ThreadingHTTPServer(('127.0.0.1', 0), Handler)
+        self.server.setup_state = self.state
+        self.thread = threading.Thread(target=self.server.serve_forever, daemon=True)
+        self.thread.start()
+
+    def tearDown(self):
+        self.server.shutdown()
+        self.server.server_close()
+        self.thread.join()
+        self.directory.cleanup()
+
+    def request(self, path, method='GET', body=None, **headers):
+        connection = http.client.HTTPConnection('127.0.0.1', self.server.server_port)
+        if body is not None:
+            body = json.dumps(body)
+            headers.setdefault('Content-Type', 'application/json')
+        connection.request(method, path, body, headers)
+        response = connection.getresponse()
+        status, raw = response.status, response.read().decode()
+        connection.close()
+        return status, raw
+
+    @patch('app.health', return_value={'verified_evcc': True})
+    def test_access_boundaries(self, health):
+        self.assertEqual(self.request('/')[0], 200)
+        self.assertEqual(self.request('/api/setup/status')[0], 200)
+        self.assertEqual(self.request('/setup')[0], 200)
+        self.assertEqual(self.request('/setup/')[0], 200)
+        self.assertEqual(self.request('/', Host=f'smart-ev-ai.local:{self.server.server_port}')[0], 200)
+        self.assertEqual(self.request('/', Host=f'evil.example:{self.server.server_port}')[0], 403)
+        self.assertEqual(self.request('/', **{'Sec-Fetch-Site': 'cross-site'})[0], 403)
+        self.assertFalse((Path(self.directory.name) / 'setup-password').exists())
+        self.assertEqual(self.request('/', Host='evil.example')[0], 403)
+        self.assertEqual(self.request('/api/setup/pair', 'POST', {})[0], 403)
+        self.assertEqual(self.request('/api/setup/pair', 'POST', {}, Origin='https://evil.example')[0], 403)
+        self.assertEqual(self.request('/anything', 'DELETE')[0], 405)
+        self.assertFalse(local_address('8.8.8.8'))
+        self.assertFalse(local_address('0.0.0.0'))
+        self.assertTrue(local_address('192.168.1.2'))
+
+    @patch('app.health', return_value={'verified_evcc': True})
+    @patch('pairing.pair', return_value=('secret-test-token', 15))
+    def test_pair_persist_restart_and_redaction(self, pair, health):
+        origin = 'http://127.0.0.1:' + str(self.server.server_port)
+        status, raw = self.request('/api/setup/pair', 'POST', {'cloud_url': 'https://cloud.example', 'pairing_code': 'ABCD-EFGH'}, Origin=origin)
+        self.assertEqual(status, 200)
+        self.assertNotIn('secret-test-token', raw)
+        status, raw = self.request('/api/setup/status')
+        self.assertNotIn('secret-test-token', raw)
+        self.assertNotIn('ABCD-EFGH', raw)
+        self.assertEqual(pairing.PAIRING_CODE, '')
+        worker = Mock()
+        restored = Setup(self.directory.name, worker)
+        self.assertEqual(restored.config['token'], 'secret-test-token')
+        worker.assert_called_once()
+        self.assertEqual(self.state.pair('https://other.example', 'CODE')[0], 409)
+        if __import__('os').name == 'posix':
+            self.assertEqual((Path(self.directory.name) / 'connector.json').stat().st_mode & 0o777, 0o600)
+
+    def test_legacy_password_does_not_block_startup(self):
+        (Path(self.directory.name) / 'setup-password').write_text('legacy')
+        Setup(self.directory.name, Mock())
+
+    @patch('pairing.pair', side_effect=ValueError('secret upstream response'))
+    def test_failure_is_redacted_and_retry_limited(self, pair):
+        status, result = self.state.pair('https://cloud.example', 'CODE')
+        self.assertEqual(status, 502)
+        self.assertNotIn('secret upstream', str(result))
+        self.assertFalse((Path(self.directory.name) / 'connector.json').exists())
+        self.assertEqual(self.state.pair('https://cloud.example', 'CODE')[0], 429)
+
+    @patch('app.health', return_value={'verified_evcc': True})
+    def test_specific_errors_persist_without_secret_leaks(self, health):
+        cases = [
+            (urllib.error.HTTPError('https://secret.example', 400, 'secret', {}, None), 'cloud_http_error'),
+            (urllib.error.URLError(socket.gaierror('secret')), 'cloud_dns_error'),
+            (urllib.error.URLError(ssl.SSLError('secret')), 'cloud_tls_error'),
+            (TimeoutError('secret'), 'cloud_timeout'),
+            (urllib.error.URLError('secret'), 'cloud_connection_error'),
+            (json.JSONDecodeError('secret', 'secret', 0), 'cloud_invalid_json'),
+            (pairing.PairingResponseError('cloud_missing_token', 'Cloud response lacks token.'), 'cloud_missing_token'),
+        ]
+        for exc, expected in cases:
+            with self.subTest(expected=expected), patch('pairing.pair', side_effect=exc):
+                self.state.next_attempt = 0
+                status, result = self.state.pair('https://cloud.example', 'SECRET-CODE')
+                self.assertEqual(status, 502)
+                self.assertEqual(result['error_code'], expected)
+                self.assertNotIn('secret', json.dumps(result).lower())
+                self.assertEqual(pairing.PAIRING_CODE, '')
+                status, raw = self.request('/api/setup/status')
+                self.assertEqual(json.loads(raw)['last_error'], result)
+                self.worker.assert_not_called()
+
+    def test_javascript_has_explicit_utf8(self):
+        connection = http.client.HTTPConnection('127.0.0.1', self.server.server_port)
+        connection.request('GET', '/wizard.js')
+        response = connection.getresponse()
+        self.assertIn('charset=utf-8', response.getheader('Content-Type'))
+        response.read().decode('utf-8')
+        connection.close()
+
+    def test_unknown_cloud_work_never_reads_evcc(self):
+        reader = Mock()
+        with patch('pairing._request') as request, patch('pairing.time.sleep', side_effect=InterruptedError):
+            request.side_effect = [{'requests': [{'id': 'r', 'command': 'charge_start'}]}, {}]
+            with self.assertRaises(InterruptedError):
+                pairing.run('test-token', reader)
+            reader.assert_not_called()
+            self.assertEqual(request.call_count, 1)  # No read or result for forbidden work.
+
+    def test_cloud_origins_and_redirects(self):
+        for url in ['http://cloud.example', 'https://user:pass@cloud.example', 'https://cloud.example/path', 'https://cloud.example?secret=x', 'https://cloud.example:444']:
+            with self.assertRaises(ValueError):
+                pairing.validate_cloud_url(url)
+        with self.assertRaises(ValueError):
+            pairing.NoRedirect().redirect_request(None, None, 302, '', {}, 'https://other.example')
+
+    @patch('pairing.pair', return_value=('secret-test-token', 15))
+    @patch('setup_web.save_secret', side_effect=OSError('disk full'))
+    def test_storage_failure_does_not_start_worker(self, save, pair):
+        status, result = self.state.pair('https://cloud.example', 'CODE')
+        self.assertEqual(status, 502)
+        self.assertEqual(result['error_code'], 'storage_failed')
+        self.assertNotIn('secret-test-token', json.dumps(result))
+        self.worker.assert_not_called()
+        self.assertIsNone(self.state.config)
+
+
+if __name__ == '__main__':
+    unittest.main()

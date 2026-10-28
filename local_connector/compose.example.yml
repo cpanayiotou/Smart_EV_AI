@@ -9,6 +9,7 @@ services:
       CONNECTOR_HOST: ${CONNECTOR_HOST:-0.0.0.0}
       CONNECTOR_PORT: "7080"
       CONNECTOR_DATA_DIR: /data
+      CONNECTOR_ALLOW_CONTROL: ${CONNECTOR_ALLOW_CONTROL:-false}
       EVCC_TIMEOUT_SECONDS: "5"
     volumes:
       - connector-data:/data

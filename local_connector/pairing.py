@@ -1,11 +1,12 @@
 """Secure outbound cloud pairing client for Smart EV Local Connector.
 
 The connector initiates every cloud request. No inbound internet port is needed.
-Cloud protocol v0.2 is strictly read-only: evcc.health and evcc.state only.
+Cloud protocol v0.3 adds separately authorized, locally opted-in manual mode commands.
 """
 from __future__ import annotations
 
 import json
+import control
 import os
 import ssl
 import time
@@ -19,7 +20,7 @@ PAIRING_CODE = os.getenv("SMART_EV_PAIRING_CODE", "")
 CONNECTOR_TOKEN = os.getenv("SMART_EV_CONNECTOR_TOKEN", "")
 POLL_SECONDS = max(5, int(os.getenv("SMART_EV_POLL_SECONDS", "15")))
 TIMEOUT = float(os.getenv("SMART_EV_CLOUD_TIMEOUT_SECONDS", "10"))
-PROTOCOL = "0.2"
+PROTOCOL = "0.3"
 ALLOWED_COMMANDS = {"evcc.health", "evcc.state"}
 
 
@@ -50,6 +51,8 @@ def _request(path: str, method: str = "GET", body: dict[str, Any] | None = None,
     if not validate_cloud_url(CLOUD_URL):
         raise ValueError("SMART_EV_CLOUD_URL must use HTTPS")
     headers = {"Accept": "application/json", "Content-Type": "application/json"}
+    if path == '/api/public/local-connectors/work' and control.enabled():
+        headers['X-Smart-EV-Control'] = 'mode-v1'
     if token:
         headers["Authorization"] = f"Bearer {token}"
     data = json.dumps(body).encode() if body is not None else None
@@ -78,7 +81,7 @@ def pair() -> tuple[str, int]:
 
 def _result(token: str, request_id: str, command: str, ok: bool,
             data: dict[str, Any] | None = None, error: str | None = None,
-            latency_ms: float | None = None) -> None:
+            latency_ms: float | None = None, error_message: str | None = None) -> None:
     body: dict[str, Any] = {
         "request_id": request_id,
         "command": command,
@@ -88,6 +91,8 @@ def _result(token: str, request_id: str, command: str, ok: bool,
         body["data"] = data
     if error is not None:
         body["error"] = {"code": error if error in {"auth_required", "unreachable", "timeout", "invalid_response"} else "unreachable"}
+        if error_message:
+            body['error']['message'] = error_message
     if latency_ms is not None:
         body["latency_ms"] = max(0, min(600000, round(latency_ms)))
     _request("/api/public/local-connectors/result", "POST", body, token=token)
@@ -96,7 +101,7 @@ def _result(token: str, request_id: str, command: str, ok: bool,
 def run(token: str, state_reader: Callable[[], dict[str, Any]],
         health_reader: Callable[[], dict[str, Any]] | None = None,
         poll_seconds: int = POLL_SECONDS, status_callback=lambda status: None) -> None:
-    """Poll cloud for read-only work using the deployed cloud v0.2 contract."""
+    """Poll telemetry and explicitly authorized manual controls."""
     interval = max(5, poll_seconds)
     while True:
         try:
@@ -113,6 +118,17 @@ def run(token: str, state_reader: Callable[[], dict[str, Any]],
                 command = item.get("command")
                 request_id = item.get("id")
                 if not isinstance(command, str) or not isinstance(request_id, str):
+                    continue
+                if command == 'evcc.set_mode':
+                    try:
+                        data = control.execute(item, lambda rid: _request(
+                            '/api/public/local-connectors/authorize', 'POST',
+                            {'request_id': rid}, token=token))
+                    except Exception as exc:
+                        message = str(exc) if isinstance(exc, control.ControlError) else 'Control failed; check evcc before retrying'
+                        _result(token, request_id, command, False, error='invalid_response', error_message=message)
+                    else:
+                        _result(token, request_id, command, True, data=data)
                     continue
                 if command not in ALLOWED_COMMANDS:
                     continue

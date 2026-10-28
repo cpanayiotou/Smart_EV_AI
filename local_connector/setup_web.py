@@ -12,6 +12,7 @@ import time
 from urllib.parse import urlsplit
 
 import app
+import control
 import pairing
 
 NETWORKS = tuple(map(ipaddress.ip_network, (
@@ -191,7 +192,7 @@ class Handler(app.Handler):
         if not self.allowed():
             return
         if self.path == '/health':
-            self._json(200, {'status': 'running', 'read_only': True})
+            self._json(200, {'status': 'running', 'read_only': not control.enabled(), 'control_capable': control.enabled()})
         elif self.path in ('/', '/wizard.js', '/wizard.css'):
             name = {'/': 'wizard.html', '/wizard.js': 'wizard.js', '/wizard.css': 'wizard.css'}[self.path]
             content = Path(__file__).with_name(name).read_bytes()
@@ -206,7 +207,7 @@ class Handler(app.Handler):
             self._json(200, {'paired': bool(state.config), 'cloud_status': state.cloud_status,
                              'last_error': state.last_error,
                              'cloud_url': state.config['cloud_url'] if state.config else '',
-                             'evcc': app.health(), 'read_only': True})
+                             'evcc': app.health(), 'read_only': not control.enabled(), 'control_capable': control.enabled()})
         else:
             super().do_GET()
 

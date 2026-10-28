@@ -29,3 +29,20 @@ scoped token hashes, revocation, work ownership/freshness and result size limits
 These server guarantees cannot be verified from this repository. Before rollout,
 verify a fresh pairing, idle/work/result cycle, restart and revocation against the
 intended deployment, without sending charger commands.
+
+## v0.3 optional manual control extension
+
+Telemetry remains v0.2-compatible. Pairing version is 0.3. With local
+CONNECTOR_ALLOW_CONTROL=true, work polling includes X-Smart-EV-Control: mode-v1.
+Only evcc.set_mode is added, separately from the read allowlist. Work params are
+exactly {loadpoint: integer 1..20, mode: off|now, expires_at: ISO UTC}, with a
+maximum 60-second cloud lifetime. Before a write, the connector POSTs
+/api/public/local-connectors/authorize with bearer token and {request_id: UUID}.
+Only {authorized:true} allows execution; the cloud must atomically consume a
+one-use grant, checking owner, connector, switch, capability, state, and expiry.
+The result data is {loadpoint, mode, verified:true} only after GET state confirms
+mode. Expired, denied, duplicate or malformed commands never write to evcc.
+
+The local replay journal is durable before authorization and execution. An
+ambiguous failure is never automatically retried. Cloud switch OFF prevents new
+grants but cannot retract an already issued grant; it does not mean Stop.

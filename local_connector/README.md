@@ -1,7 +1,7 @@
 # Smart EV local setup (Raspberry Pi / Linux)
 
 This connector reads the existing evcc installation at `http://127.0.0.1:7070`.
-It does not configure Huawei/Peblar, change charging, or start/stop evcc.
+It never configures Huawei/Peblar or starts/stops the evcc service. Charging mode changes require the explicit manual-control permissions below.
 
 ## Safe deployment
 
@@ -31,7 +31,7 @@ view status and pair an unpaired connector. Use only on a trusted network; do no
 forward port 7080 to the internet. HTTP is not encrypted.
 
 Private/loopback client checks, numeric LAN or `.local` Host validation, and
-same-origin protection remain enabled. Charging commands remain disabled.
+same-origin protection remain enabled. Charging commands remain disabled unless both local and cloud permissions are enabled.
 Set `CONNECTOR_HOST` in `local_connector/.env` to a specific private IP to limit
 the listening interface, or to `127.0.0.1` for SSH tunnelling.
 
@@ -85,3 +85,11 @@ python -m unittest discover -s local_connector -v
 Run this from the repository root. Linux CI also checks real POSIX file modes.
 The tests cover password-free access, hostile Host/Origin, pairing and restart,
 redaction, storage failure, redirects, retry throttling and read-only allowlists.
+
+## Optional manual charging controls (v0.3)
+
+Set CONNECTOR_ALLOW_CONTROL=true in local_connector/.env and recreate only the connector to advertise mode-v1 capability. The default is false. Existing pairing is retained; no re-pair is required. The signed-in owner must separately enable Charging controls in the cloud, then explicitly choose Start or Stop for a loadpoint. Enabling either permission does not start charging.
+
+Only evcc mode now and off are supported; existing evcc limits remain authoritative. No current, phase, battery target or automated planning changes are allowed. The connector rechecks the cloud permission with a single-use authorization just before each write, requires an unexpired request, journals the attempt durably before writing, and verifies the resulting mode by reading evcc. It never retries an ambiguous hardware write automatically, including after reboot. The journal lives in the existing data volume. Do not delete it to retry commands.
+
+Turning the cloud switch off cancels pending actions and blocks new authorizations. It does not stop ongoing charging or undo a command already authorized in flight. Use the explicit Stop action while enabled, or evcc locally. A control failure or lost acknowledgment requires checking actual evcc state before issuing a new action. No hardware commands are sent by tests or deployment.

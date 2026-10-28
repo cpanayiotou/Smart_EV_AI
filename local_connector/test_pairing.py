@@ -23,7 +23,7 @@ class PairingTests(unittest.TestCase):
             self.assertEqual(pairing.pair(), ("secret", 20))
             self.assertEqual(request.call_args.args[0], "/api/public/local-connectors/pair")
             body = request.call_args.args[2]
-            self.assertEqual(body, {"code": "ABC", "version": "0.2"})
+            self.assertEqual(body, {"code": "ABC", "version": "0.3"})
 
     def test_result_matches_deployed_contract(self):
         with patch.object(pairing, "_request") as request:

@@ -26,10 +26,8 @@ class WizardTests(unittest.TestCase):
         self.thread.join()
         self.directory.cleanup()
 
-    def request(self, path, method='GET', body=None, auth=True, **headers):
+    def request(self, path, method='GET', body=None, **headers):
         connection = http.client.HTTPConnection('127.0.0.1', self.server.server_port)
-        if auth:
-            headers['X-Setup-Password'] = self.state.password
         if body is not None:
             body = json.dumps(body)
             headers.setdefault('Content-Type', 'application/json')
@@ -39,10 +37,16 @@ class WizardTests(unittest.TestCase):
         connection.close()
         return status, raw
 
-    def test_access_boundaries(self):
+    @patch('app.health', return_value={'verified_evcc': True})
+    def test_access_boundaries(self, health):
         self.assertEqual(self.request('/')[0], 200)
-        self.assertEqual(self.request('/api/setup/status', auth=False)[0], 401)
-        self.assertEqual(self.request('/v1/evcc/state', auth=False)[0], 401)
+        self.assertEqual(self.request('/api/setup/status')[0], 200)
+        self.assertEqual(self.request('/setup')[0], 200)
+        self.assertEqual(self.request('/setup/')[0], 200)
+        self.assertEqual(self.request('/', Host=f'smart-ev-ai.local:{self.server.server_port}')[0], 200)
+        self.assertEqual(self.request('/', Host=f'evil.example:{self.server.server_port}')[0], 403)
+        self.assertEqual(self.request('/', **{'Sec-Fetch-Site': 'cross-site'})[0], 403)
+        self.assertFalse((Path(self.directory.name) / 'setup-password').exists())
         self.assertEqual(self.request('/', Host='evil.example')[0], 403)
         self.assertEqual(self.request('/api/setup/pair', 'POST', {})[0], 403)
         self.assertEqual(self.request('/api/setup/pair', 'POST', {}, Origin='https://evil.example')[0], 403)
@@ -69,6 +73,10 @@ class WizardTests(unittest.TestCase):
         self.assertEqual(self.state.pair('https://other.example', 'CODE')[0], 409)
         if __import__('os').name == 'posix':
             self.assertEqual((Path(self.directory.name) / 'connector.json').stat().st_mode & 0o777, 0o600)
+
+    def test_legacy_password_does_not_block_startup(self):
+        (Path(self.directory.name) / 'setup-password').write_text('legacy')
+        Setup(self.directory.name, Mock())
 
     @patch('pairing.pair', side_effect=ValueError('secret upstream response'))
     def test_failure_is_redacted_and_retry_limited(self, pair):

@@ -21,11 +21,11 @@ def start_worker(token, interval, callback):
 
 
 if __name__ == '__main__':
-    host = os.getenv('CONNECTOR_HOST', '127.0.0.1')
-    if not local_address(host):
-        raise SystemExit('CONNECTOR_HOST must be an explicit loopback or private LAN IP')
+    host = os.getenv('CONNECTOR_HOST', '0.0.0.0')
+    if host != '0.0.0.0' and not local_address(host):
+        raise SystemExit('CONNECTOR_HOST must be 0.0.0.0, loopback or a private LAN IP')
     state = Setup(os.getenv('CONNECTOR_DATA_DIR', '/data'), start_worker)
     server = app.ThreadingHTTPServer((host, app.LISTEN_PORT), Handler)
     server.setup_state = state
-    print('Smart EV read-only setup service ready; use the local setup-password file.')
+    print('Smart EV read-only setup service ready; open / or /setup on your LAN.')
     server.serve_forever()

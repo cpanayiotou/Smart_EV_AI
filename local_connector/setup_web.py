@@ -4,6 +4,9 @@ import json
 import os
 from pathlib import Path
 import secrets
+import ssl
+import socket
+import urllib.error
 import threading
 import time
 from urllib.parse import urlsplit
@@ -57,6 +60,42 @@ def save_secret(path, value):
         temporary.unlink(missing_ok=True)
 
 
+def pairing_error(exc):
+    """Return only fixed diagnostics, never upstream bodies or exception text."""
+    if isinstance(exc, urllib.error.HTTPError):
+        status = exc.code
+        hint = {
+            400: 'Cloud rejected the pairing request. Check connector API compatibility.',
+            401: 'Cloud rejected pairing authorization or the code.',
+            403: 'Cloud denied this pairing request.',
+            404: 'Cloud pairing endpoint was not found. Check the API URL.',
+            409: 'Cloud reported a pairing conflict. Check the existing connector.',
+            410: 'Cloud reported the pairing code is no longer available.',
+            422: 'Cloud could not validate the pairing request.',
+            429: 'Cloud rate limit reached. Wait before trying again.'
+        }.get(status, 'Cloud returned an HTTP error during pairing.')
+        return {'error_code': 'cloud_http_error', 'http_status': status,
+                'error': f'{hint} (HTTP {status})'}
+    reason = exc.reason if isinstance(exc, urllib.error.URLError) else exc
+    if isinstance(reason, ssl.SSLError):
+        code, message = 'cloud_tls_error', 'Cloud TLS verification failed. Check the Pi clock and certificate trust.'
+    elif isinstance(reason, socket.gaierror):
+        code, message = 'cloud_dns_error', 'The Pi could not resolve the cloud hostname.'
+    elif isinstance(reason, TimeoutError):
+        code, message = 'cloud_timeout', 'The cloud pairing request timed out.'
+    elif isinstance(exc, urllib.error.URLError):
+        code, message = 'cloud_connection_error', 'The Pi could not connect to the cloud API.'
+    elif isinstance(exc, json.JSONDecodeError):
+        code, message = 'cloud_invalid_json', 'Cloud returned non-JSON or malformed JSON instead of a pairing response.'
+    elif isinstance(exc, pairing.PairingResponseError):
+        code, message = exc.code, exc.message
+    elif isinstance(exc, (ValueError, TypeError, AttributeError)):
+        code, message = 'cloud_invalid_response', 'Cloud pairing response was incompatible or redirected. Check the API URL and protocol.'
+    else:
+        code, message = 'pairing_failed', 'Unexpected pairing failure. No credentials were saved.'
+    return {'error_code': code, 'error': message}
+
+
 class Setup:
     def __init__(self, directory, start_worker):
         self.directory = Path(directory)
@@ -67,6 +106,7 @@ class Setup:
         self.config = None
         self.cloud_status = 'not_paired'
         self.next_attempt = 0
+        self.last_error = None
         config_file = self.directory / 'connector.json'
         if config_file.exists():
             os.chmod(config_file, 0o600)
@@ -91,18 +131,26 @@ class Setup:
             cloud_url = pairing.validate_cloud_url(cloud_url)
             if not isinstance(code, str) or not 4 <= len(code.strip()) <= 128:
                 return 400, {'error': 'Enter a fresh pairing code.'}
+            self.last_error = None
             pairing.CLOUD_URL = cloud_url
             pairing.PAIRING_CODE = code.strip()
             try:
                 token, interval = pairing.pair()
-                config = {'cloud_url': cloud_url, 'token': token, 'poll_interval_s': interval}
-                save_secret(self.directory / 'connector.json', json.dumps(config))
-                self.config = config
-            except Exception:
+            except Exception as exc:
                 self.cloud_status = 'pairing_failed'
-                return 502, {'error': 'Pairing or secure storage failed. Check cloud URL and request a fresh code.'}
+                self.last_error = pairing_error(exc)
+                return 502, self.last_error
             finally:
                 pairing.PAIRING_CODE = ''
+            config = {'cloud_url': cloud_url, 'token': token, 'poll_interval_s': interval}
+            try:
+                save_secret(self.directory / 'connector.json', json.dumps(config))
+            except Exception:
+                self.cloud_status = 'storage_failed'
+                self.last_error = {'error_code': 'storage_failed', 'error':
+                    'Cloud pairing succeeded, but saving credentials failed. Revoke this connector in the cloud before retrying.'}
+                return 502, self.last_error
+            self.config = config
             self.start()
             return 200, {'paired': True}
 
@@ -148,7 +196,7 @@ class Handler(app.Handler):
             name = {'/': 'wizard.html', '/wizard.js': 'wizard.js', '/wizard.css': 'wizard.css'}[self.path]
             content = Path(__file__).with_name(name).read_bytes()
             self.send_response(200)
-            self.send_header('Content-Type', {'/': 'text/html; charset=utf-8', '/wizard.js': 'text/javascript', '/wizard.css': 'text/css'}[self.path])
+            self.send_header('Content-Type', {'/': 'text/html; charset=utf-8', '/wizard.js': 'text/javascript; charset=utf-8', '/wizard.css': 'text/css; charset=utf-8'}[self.path])
             self.send_header('Cache-Control', 'no-store')
             self.send_header('Content-Length', str(len(content)))
             self.end_headers()
@@ -156,6 +204,7 @@ class Handler(app.Handler):
         elif self.path == '/api/setup/status':
             state = self.server.setup_state
             self._json(200, {'paired': bool(state.config), 'cloud_status': state.cloud_status,
+                             'last_error': state.last_error,
                              'cloud_url': state.config['cloud_url'] if state.config else '',
                              'evcc': app.health(), 'read_only': True})
         else:

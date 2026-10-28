@@ -1,5 +1,8 @@
 import http.client
 import json
+import socket
+import ssl
+import urllib.error
 from pathlib import Path
 import tempfile
 import threading
@@ -86,6 +89,37 @@ class WizardTests(unittest.TestCase):
         self.assertFalse((Path(self.directory.name) / 'connector.json').exists())
         self.assertEqual(self.state.pair('https://cloud.example', 'CODE')[0], 429)
 
+    @patch('app.health', return_value={'verified_evcc': True})
+    def test_specific_errors_persist_without_secret_leaks(self, health):
+        cases = [
+            (urllib.error.HTTPError('https://secret.example', 400, 'secret', {}, None), 'cloud_http_error'),
+            (urllib.error.URLError(socket.gaierror('secret')), 'cloud_dns_error'),
+            (urllib.error.URLError(ssl.SSLError('secret')), 'cloud_tls_error'),
+            (TimeoutError('secret'), 'cloud_timeout'),
+            (urllib.error.URLError('secret'), 'cloud_connection_error'),
+            (json.JSONDecodeError('secret', 'secret', 0), 'cloud_invalid_json'),
+            (pairing.PairingResponseError('cloud_missing_token', 'Cloud response lacks token.'), 'cloud_missing_token'),
+        ]
+        for exc, expected in cases:
+            with self.subTest(expected=expected), patch('pairing.pair', side_effect=exc):
+                self.state.next_attempt = 0
+                status, result = self.state.pair('https://cloud.example', 'SECRET-CODE')
+                self.assertEqual(status, 502)
+                self.assertEqual(result['error_code'], expected)
+                self.assertNotIn('secret', json.dumps(result).lower())
+                self.assertEqual(pairing.PAIRING_CODE, '')
+                status, raw = self.request('/api/setup/status')
+                self.assertEqual(json.loads(raw)['last_error'], result)
+                self.worker.assert_not_called()
+
+    def test_javascript_has_explicit_utf8(self):
+        connection = http.client.HTTPConnection('127.0.0.1', self.server.server_port)
+        connection.request('GET', '/wizard.js')
+        response = connection.getresponse()
+        self.assertIn('charset=utf-8', response.getheader('Content-Type'))
+        response.read().decode('utf-8')
+        connection.close()
+
     def test_unknown_cloud_work_never_reads_evcc(self):
         reader = Mock()
         with patch('pairing._request') as request, patch('pairing.time.sleep', side_effect=InterruptedError):
@@ -107,7 +141,10 @@ class WizardTests(unittest.TestCase):
     @patch('pairing.pair', return_value=('secret-test-token', 15))
     @patch('setup_web.save_secret', side_effect=OSError('disk full'))
     def test_storage_failure_does_not_start_worker(self, save, pair):
-        self.assertEqual(self.state.pair('https://cloud.example', 'CODE')[0], 502)
+        status, result = self.state.pair('https://cloud.example', 'CODE')
+        self.assertEqual(status, 502)
+        self.assertEqual(result['error_code'], 'storage_failed')
+        self.assertNotIn('secret-test-token', json.dumps(result))
         self.worker.assert_not_called()
         self.assertIsNone(self.state.config)
 

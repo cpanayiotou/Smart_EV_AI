@@ -23,6 +23,13 @@ PROTOCOL = "0.2"
 ALLOWED_COMMANDS = {"evcc.health", "evcc.state"}
 
 
+class PairingResponseError(ValueError):
+    def __init__(self, code, message):
+        self.code = code
+        self.message = message
+        super().__init__(message)
+
+
 class NoRedirect(urllib.request.HTTPRedirectHandler):
     def redirect_request(self, req, fp, code, msg, headers, newurl):
         raise ValueError("Cloud redirects are not allowed")
@@ -62,9 +69,11 @@ def pair() -> tuple[str, int]:
         "capabilities": sorted(ALLOWED_COMMANDS),
         "read_only": True,
     })
+    if not isinstance(result, dict):
+        raise PairingResponseError('cloud_invalid_response', 'Cloud pairing response must be a JSON object.')
     token = result.get("token")
     if not isinstance(token, str) or not token:
-        raise ValueError("cloud pairing response did not include token")
+        raise PairingResponseError('cloud_missing_token', 'Cloud returned JSON without the required token. Check the cloud connector API contract.')
     interval = int(result.get("poll_interval_s", POLL_SECONDS))
     return token, max(5, interval)
 

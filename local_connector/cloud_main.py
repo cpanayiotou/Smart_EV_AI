@@ -1,4 +1,4 @@
-"""LAN setup service and outbound read-only cloud worker."""
+"""LAN setup and outbound worker, with optional authorized manual control."""
 import os
 import threading
 import app
@@ -28,5 +28,5 @@ if __name__ == '__main__':
     state = Setup(os.getenv('CONNECTOR_DATA_DIR', '/data'), start_worker)
     server = app.ThreadingHTTPServer((host, app.LISTEN_PORT), Handler)
     server.setup_state = state
-    print('Smart EV read-only setup service ready; open / or /setup on your LAN.')
+    print('Smart EV setup service ready; open / or /setup on your LAN.')
     server.serve_forever()

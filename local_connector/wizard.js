@@ -11,7 +11,8 @@ async function request(path, body) {
 async function refresh() {
   const data = await request('/api/setup/status');
   el('details').hidden = false;
-  el('evcc').textContent = data.evcc.verified_evcc ? 'evcc connected  -  read-only access verified' : 'evcc unavailable  -  check the local evcc service and address';
+  document.querySelector('.tag').textContent = data.control_capable ? 'SMART EV AI - MANUAL CONTROL CAPABLE' : 'SMART EV AI - READ ONLY';
+  el('evcc').textContent = data.evcc.verified_evcc ? (data.control_capable ? 'evcc connected - manual controls require cloud authorization' : 'evcc connected - read-only access verified') : 'evcc unavailable  -  check the local evcc service and address';
   el('status').textContent = data.paired ? `Paired  -  cloud ${data.cloud_status}` : `Not paired  -  ${data.cloud_status.replaceAll('_', ' ')}`;
   el('pair').hidden = data.paired;
   el('message').textContent = data.last_error ? data.last_error.error : '';

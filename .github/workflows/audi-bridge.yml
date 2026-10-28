@@ -1,0 +1,30 @@
+name: Audi bridge
+on:
+  pull_request:
+    paths: ['audi_bridge/**', '.github/workflows/audi-bridge.yml']
+  push:
+    branches: [local-connector-readonly]
+    paths: ['audi_bridge/**', '.github/workflows/audi-bridge.yml']
+jobs:
+  bridge:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: python -m unittest discover -s audi_bridge -v
+      - run: docker compose -f audi_bridge/compose.yml config --quiet
+      - run: docker build -t audi-bridge-test audi_bridge
+      - name: Verify pinned Audi client imports in image
+        run: docker run --rm --entrypoint python audi-bridge-test -c 'from audi_connect import AudiAPI, AudiAuth; from audi_connect.connection import create_session'
+      - name: Read synthetic battery level using actual evcc
+        run: |
+          set -euo pipefail
+          python audi_bridge/ci_fixture.py &
+          for i in {1..10}; do
+            if curl -fsS http://127.0.0.1:7081/soc; then break; fi
+            sleep 1
+          done
+          docker run --rm --network host -v "$PWD/audi_bridge/evcc.vehicle.example.yaml:/etc/evcc.yaml:ro" evcc/evcc:latest --ignore-db vehicle audi_bridge --timeout 5s | tee /tmp/vehicle.txt
+          grep -Eiq 'Soc:[[:space:]]+58%' /tmp/vehicle.txt

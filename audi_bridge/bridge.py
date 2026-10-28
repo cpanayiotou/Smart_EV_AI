@@ -17,6 +17,30 @@ POLL_SECONDS = 1800
 MAX_AGE_SECONDS = 3600
 
 
+def failure_detail(exc):
+    """Only emit fixed descriptions and allowlisted OAuth codes, never raw errors."""
+    prefix = 'Device authorization did not return a device_code: '
+    message = str(exc)
+    if message.startswith(prefix):
+        code = None
+        try:
+            payload = json.loads(message[len(prefix):])
+            code = payload.get('error') if isinstance(payload, dict) else None
+        except (ValueError, TypeError):
+            pass
+        allowed = ('unauthorized_client', 'invalid_client', 'invalid_scope',
+                   'invalid_request', 'access_denied', 'temporarily_unavailable')
+        if code in allowed:
+            return 'Audi device authorization rejected: ' + code
+        return 'Audi device authorization returned no approval code (response withheld)'
+    if type(exc).__name__ == 'CountryNotSupportedError':
+        return 'Configured country is not in Audi market configuration'
+    status = getattr(exc, 'status', None)
+    if type(status) is int and 400 <= status <= 599:
+        return f'Audi request failed: HTTP {status}'
+    return 'Authentication, storage or vehicle read failed (details withheld)'
+
+
 def timestamp(value):
     if not isinstance(value, str):
         raise ValueError('Missing vehicle capture time')
@@ -229,7 +253,7 @@ async def run(directory, probe=False):
                     cache.fail()
                     reader.auth = None
                     # Never log upstream messages: they may contain VINs or credentials.
-                    print(f'Audi read failed ({type(exc).__name__}); run probe for approval if needed.', flush=True)
+                    print(f'Audi read failed ({type(exc).__name__}): {failure_detail(exc)}.', flush=True)
                     if probe:
                         return 1
                 await asyncio.sleep(POLL_SECONDS)

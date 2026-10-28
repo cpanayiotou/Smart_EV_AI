@@ -8,6 +8,8 @@ The Audi client is pinned to [John6810/myaudi-api commit afd531e](https://github
 
 ## 1. Build and approve access
 
+**Fresh European login is currently unverified and may be blocked.** [Upstream issue #62](https://github.com/John6810/myaudi-api/issues/62) reports `unauthorized_client` before any approval link, and the maintainer confirms there is no verified fix for new EU sessions. If the probe reports this code, stop retrying: changing your password or country is not a verified solution. Browser approval below only applies if Audi actually issues an approval code. The bridge architecture and mock tests do not establish that Audi permits authentication.
+
 Run in this directory on the Raspberry Pi, from a checkout containing this change:
 
 ```sh

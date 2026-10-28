@@ -11,7 +11,7 @@ import unittest
 from unittest.mock import AsyncMock, Mock, patch
 from http.server import ThreadingHTTPServer
 
-from bridge import AudiReader, Cache, atomic_json, handler_for, normalize, select_vin
+from bridge import AudiReader, Cache, atomic_json, failure_detail, handler_for, normalize, select_vin
 
 RAW = {'charging': {'batteryStatus': {'value': {
     'currentSOC_pct': 58, 'carCapturedTimestamp': '2026-10-28T10:00:00Z'}}},
@@ -134,6 +134,19 @@ class HttpTest(unittest.TestCase):
 
 
 class ProviderTest(unittest.TestCase):
+    def test_device_rejection_diagnostic_omits_private_fields(self):
+        exc = Exception('Device authorization did not return a device_code: ' +
+                        json.dumps({'error': 'unauthorized_client', 'token': 'SECRET',
+                                    'error_description': 'PRIVATE ACCOUNT'}))
+        self.assertEqual(failure_detail(exc),
+                         'Audi device authorization rejected: unauthorized_client')
+
+    def test_unknown_and_truncated_errors_never_echo_response(self):
+        for message in ('SECRET',
+                        'Device authorization did not return a device_code: {"token":"SECRET',
+                        'Device authorization did not return a device_code: {"error":"SECRET"}'):
+            self.assertNotIn('SECRET', failure_detail(Exception(message)))
+
     def test_only_stored_status_read_and_refresh(self):
         with tempfile.TemporaryDirectory() as tmp:
             directory = Path(tmp)

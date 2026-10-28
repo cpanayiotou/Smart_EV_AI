@@ -23,34 +23,25 @@ Resolve any existing connector container-name conflict by stopping/removing only
 the old **smart-ev-connector** container after recording its settings. Never use
 `docker compose down` on the main stack. No evcc restart is needed.
 
-The default bind is `127.0.0.1:7080`. From your laptop, use an encrypted tunnel:
+The connector listens on `0.0.0.0:7080` by default. Open
+`http://smart-ev-ai.local:7080/` (when mDNS is available) or
+`http://PI_LAN_IP:7080/`. `/setup` opens the same wizard. There is no local setup
+password or Raspberry Pi account login. Anyone on the reachable trusted LAN can
+view status and pair an unpaired connector. Use only on a trusted network; do not
+forward port 7080 to the internet. HTTP is not encrypted.
 
-```sh
-ssh -N -L 7080:127.0.0.1:7080 smartai@PI_LAN_IP
-```
+Private/loopback client checks, numeric LAN or `.local` Host validation, and
+same-origin protection remain enabled. Charging commands remain disabled.
+Set `CONNECTOR_HOST` in `local_connector/.env` to a specific private IP to limit
+the listening interface, or to `127.0.0.1` for SSH tunnelling.
 
-Then open `http://127.0.0.1:7080`. Retrieve the generated setup password privately
-on your Pi terminal (do not paste it into chat, logs, screenshots or tickets):
-
-```sh
-docker compose -f compose.example.yml exec smart-ev-connector cat /data/setup-password
-```
-
-For direct **trusted-LAN** access, set `CONNECTOR_HOST=PI_LAN_IP` in
-`local_connector/.env`, recreate only the connector using the command above, and
-open `http://PI_LAN_IP:7080`. Use a fixed/reserved IPv4 address. HTTP on the LAN is
-not encrypted; use the SSH tunnel on shared/untrusted networks. Bind only to the
-trusted interface and restrict TCP 7080 with the host firewall to trusted clients.
-Do not enable internet port forwarding, reverse proxies, or public tunnels.
-Wildcard/public binds and hostname-based browser access are intentionally rejected.
-
-Unlock the wizard, check evcc health, enter the exact HTTPS cloud API **origin**
-(no path or query), then enter a freshly generated one-time code. The old code
-from previous chats should not be reused. Cloud URLs must use standard port 443.
+Check evcc health, enter the exact HTTPS cloud API origin (no path or query),
+then enter a freshly generated one-time pairing code. Cloud URLs use port 443.
+Existing pairing data is preserved across this upgrade.
 
 ## Persistence and status
 
-The named `connector-data` volume stores `connector.json` and `setup-password`.
+The named `connector-data` volume stores `connector.json`. Legacy `setup-password` files are ignored.
 Files use Linux mode 0600, directory 0700, owned by UID 10001. Writes are atomic
 and fsynced before polling starts. The container runs unprivileged with a read-only
 root filesystem. Keep the volume across rebuilds; never use `down -v`. Protect
@@ -63,7 +54,7 @@ cloud origin. On restart the connector resumes polling from the volume.
 Legacy pairing/token environment variables are no longer consumed by cloud_main;
 existing installations must pair once through the wizard using a fresh code.
 
-`/health` reports only local service liveness. Authenticated `/api/setup/status`
+`/health` reports only local service liveness. `/api/setup/status`
 reports evcc health, pairing and cloud polling separately. "Paired" means a token
 was securely saved; "online" means a work request succeeded, not that every cloud
 result was accepted. Cloud failures retry; a revoked token needs a local reset.
@@ -72,8 +63,7 @@ result was accepted. Cloud failures retry; a revoked token needs a local reset.
 
 Revoke the connector in the cloud first. Stop only the connector, make a protected
 backup of its volume, then remove only `/data/connector.json` using a temporary
-container mounting the same volume. Restart and use a fresh pairing code. Remove
-`setup-password` too only when deliberately rotating local access. Do not delete
+container mounting the same volume. Restart and use a fresh pairing code. Do not delete
 the entire volume or any evcc files. If pairing succeeded remotely but disk saving
 failed, revoke that orphaned connector and request a fresh code before retrying.
 
@@ -93,5 +83,5 @@ python -m unittest discover -s local_connector -v
 ```
 
 Run this from the repository root. Linux CI also checks real POSIX file modes.
-The tests cover authentication, hostile Host/Origin, pairing and restart,
+The tests cover password-free access, hostile Host/Origin, pairing and restart,
 redaction, storage failure, redirects, retry throttling and read-only allowlists.

@@ -1,4 +1,4 @@
-"""Authenticated, same-origin LAN setup; credentials never returned by HTTP."""
+"""Password-free, same-origin LAN setup; credentials never returned by HTTP."""
 import ipaddress
 import json
 import os
@@ -21,6 +21,19 @@ def local_address(value):
         return any(address in network for network in NETWORKS)
     except ValueError:
         return False
+
+
+def valid_browser_host(value):
+    """Allow numeric LAN addresses and mDNS names, never arbitrary DNS hosts."""
+    if not value:
+        return False
+    value = value.lower().rstrip('.')
+    return (local_address(value) or value == 'localhost' or
+            (value.endswith('.local') and all(
+                label and len(label) <= 63 and
+                label[0].isalnum() and label[-1].isalnum() and
+                all(c.isascii() and (c.isalnum() or c == '-') for c in label)
+                for label in value.split('.'))))
 
 
 def save_secret(path, value):
@@ -49,13 +62,6 @@ class Setup:
         self.directory = Path(directory)
         self.directory.mkdir(mode=0o700, parents=True, exist_ok=True)
         os.chmod(self.directory, 0o700)
-        password_file = self.directory / 'setup-password'
-        if not password_file.exists():
-            save_secret(password_file, secrets.token_urlsafe(32))
-        os.chmod(password_file, 0o600)
-        self.password = password_file.read_text().strip()
-        if len(self.password) < 32:
-            raise ValueError('Invalid setup password file')
         self.lock = threading.Lock()
         self.start_worker = start_worker
         self.config = None
@@ -112,12 +118,12 @@ class Handler(app.Handler):
         self.send_header('Referrer-Policy', 'no-referrer')
         super().end_headers()
 
-    def allowed(self, authenticate=True, mutation=False):
+    def allowed(self, mutation=False):
         host = self.headers.get('Host', '')
         try:
             parsed = urlsplit('http://' + host)
             valid_host = (not parsed.username and not parsed.password and not parsed.path and
-                          parsed.port == self.server.server_port and local_address(parsed.hostname))
+                          parsed.port == self.server.server_port and valid_browser_host(parsed.hostname))
         except ValueError:
             valid_host = False
         if not local_address(self.client_address[0]) or not valid_host:
@@ -129,15 +135,12 @@ class Handler(app.Handler):
                 self.headers.get('Sec-Fetch-Site') == 'cross-site'):
             self._json(403, {'error': 'Same-origin access required'})
             return False
-        if authenticate and not secrets.compare_digest(
-                self.headers.get('X-Setup-Password', '').encode('utf-8'), self.server.setup_state.password.encode('utf-8')):
-            self._json(401, {'error': 'Setup password required'})
-            return False
         return True
 
     def do_GET(self):
-        public = self.path in ('/', '/wizard.js', '/wizard.css', '/health')
-        if not self.allowed(authenticate=not public):
+        if self.path in ('/setup', '/setup/'):
+            self.path = '/'
+        if not self.allowed():
             return
         if self.path == '/health':
             self._json(200, {'status': 'running', 'read_only': True})

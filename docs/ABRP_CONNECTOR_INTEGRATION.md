@@ -1,5 +1,9 @@
 # ABRP read-only routes on the existing connector
 
+## Last-known battery display
+
+The connector now exposes `/v1/abrp/display` and shows a battery panel on its local setup page. Valid older Enode SoC is labelled **Stale**, with its measurement age. The display field is `last_known_soc_percent`; stale data retains `soc_percent: null` and `available: false`. `/v1/abrp/soc` continues to return HTTP 503 for stale readings. No charging behavior changes. The guided installer accepts valid display data, including stale readings, and can upgrade the original pinned adapter while preserving local authorization. This supersedes the fresh-only installation requirements below.
+
 This change targets `local-connector-readonly` at `8b7adc5c77ac91be56061d028b6be052b45f7b9d`, where the running connector's source lives. `main` remains a scaffold. It complements the isolated ABRP adapter in [PR #8](https://github.com/cpanayiotou/Smart_EV_AI/pull/8); neither PR needs to be merged to test a review branch.
 
 ## Observed Pi state — 2026-11-01

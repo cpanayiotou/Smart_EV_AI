@@ -19,6 +19,15 @@ async function refresh() {
   if (data.cloud_url) el('cloud').value = data.cloud_url;
 }
 async function updateStatus() {
+  try {
+    const battery = await request('/v1/abrp/display');
+    const minutes = Math.floor(battery.age_seconds / 60);
+    const age = minutes < 1 ? 'less than a minute ago' : `${minutes} minutes ago`;
+    el('abrp').textContent = `${battery.last_known_soc_percent}% - measured ${age}. ` +
+      (battery.stale ? 'Stale: last-known reading only; unavailable for charging decisions.' : 'Fresh reading.');
+  } catch (_) {
+    el('abrp').textContent = 'Battery reading unavailable.';
+  }
   try { await refresh(); }
   catch (error) { el('message').textContent = error.message; }
 }

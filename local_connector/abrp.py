@@ -20,14 +20,15 @@ def number(value):
     return type(value) in (int, float) and math.isfinite(value)
 
 
-def read():
+def read(display=False):
     unavailable = {'available': False, 'soc_percent': None,
                    'read_only': True, 'reason': 'abrp_unavailable'}
     if not enabled():
         return 503, {**unavailable, 'reason': 'abrp_disabled'}
     try:
         opener = urllib.request.build_opener(urllib.request.ProxyHandler({}), NoRedirect())
-        request = urllib.request.Request(URL, method='GET', headers={'Accept': 'application/json'})
+        url = URL.replace('/telemetry', '/display') if display else URL
+        request = urllib.request.Request(url, method='GET', headers={'Accept': 'application/json'})
         with opener.open(request, timeout=5) as response:
             raw = response.read(LIMIT + 1)
             if response.status != 200 or len(raw) > LIMIT:
@@ -36,15 +37,17 @@ def read():
         if not isinstance(data, dict):
             return 503, unavailable
         soc, ts, age = (data.get(k) for k in ('soc_percent', 'soc_timestamp', 'age_seconds'))
+        if display:
+            soc = data.get('last_known_soc_percent')
         fetched, max_age, vehicle = (data.get(k) for k in ('fetched_at', 'max_age_seconds', 'vehicle_id'))
         now = time.time()
-        if (data.get('available') is not True or data.get('read_only') is not True
+        if ((data.get('display_available') if display else data.get('available')) is not True or data.get('read_only') is not True
                 or data.get('source') != 'abrp/enode'
                 or type(vehicle) is not int or vehicle <= 0
                 or not all(number(x) for x in (soc, ts, age, fetched, max_age))
                 or not 0 <= soc <= 100 or not 60 <= max_age <= 900
-                or ts <= 0 or not 0 <= age <= max_age
-                or not -30 <= now - ts <= max_age
+                or ts <= 0 or age < 0 or (not display and age > max_age)
+                or now - ts < -30 or (not display and now - ts > max_age)
                 or not -30 <= now - fetched <= max_age):
             return 503, unavailable
         # Copy only the public contract, never arbitrary upstream fields/errors.
@@ -52,6 +55,10 @@ def read():
             'available', 'read_only', 'source', 'vehicle_id', 'soc_percent',
             'soc_timestamp', 'fetched_at', 'max_age_seconds')}
         result['age_seconds'] = round(max(age, now - ts, 0), 2)
+        if display:
+            fresh = result['age_seconds'] <= max_age and data.get('available') is True
+            result.update(display_available=True, last_known_soc_percent=soc,
+                          stale=not fresh, available=fresh, soc_percent=soc if fresh else None)
         return 200, result
     except urllib.error.HTTPError as exc:
         exc.close()

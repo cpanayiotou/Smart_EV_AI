@@ -69,6 +69,20 @@ class IntegrationTests(unittest.TestCase):
             self.assertEqual(self.request()[0], 503)
         self.assertEqual(self.calls, [])
 
+    def test_stale_display_does_not_enable_numeric_endpoint(self):
+        self.payload.update(available=False, soc_percent=None, last_known_soc_percent=51,
+                            display_available=True, stale=True, age_seconds=4800,
+                            soc_timestamp=time.time()-4800)
+        code, raw, _ = self.request('/v1/abrp/display')
+        self.assertEqual(code, 200)
+        data = json.loads(raw)
+        self.assertEqual(data['last_known_soc_percent'], 51)
+        self.assertTrue(data['stale'])
+        self.assertFalse(data['available'])
+        self.assertIsNone(data['soc_percent'])
+        self.assertEqual(self.request('/v1/abrp/soc')[0], 503)
+        self.assertEqual(self.calls[0], ('GET', '/v1/abrp/display'))
+
     def test_failure_never_reuses_success(self):
         self.assertEqual(self.request('/v1/abrp/soc')[0], 200)
         for status in (503, 401, 302, 500):

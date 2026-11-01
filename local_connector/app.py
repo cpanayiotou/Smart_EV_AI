@@ -96,8 +96,8 @@ class Handler(BaseHTTPRequestHandler):
         self.wfile.write(payload)
 
     def do_GET(self) -> None:
-        if self.path in ('/v1/abrp/telemetry', '/v1/abrp/soc'):
-            status, payload = abrp.read()
+        if self.path in ('/v1/abrp/telemetry', '/v1/abrp/soc', '/v1/abrp/display'):
+            status, payload = abrp.read(display=self.path == '/v1/abrp/display')
             if self.path == '/v1/abrp/soc' and status == 200:
                 raw = str(payload['soc_percent']).encode('ascii')
                 self.send_response(200)

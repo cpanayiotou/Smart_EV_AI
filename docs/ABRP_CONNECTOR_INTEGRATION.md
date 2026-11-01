@@ -23,6 +23,18 @@ The setup server's existing LAN client, Host and same-origin checks still apply.
 
 ## Deployment sequence
 
+### Guided installer
+
+`deploy/install_abrp.py` automates the steps below when run with `sudo python3` in the Pi's own interactive SSH terminal. It downloads the two reviewed source commits pinned inside the script, checks that the existing Compose configuration hash matches the running host-network connector, preserves its project/volumes/manual-control settings, runs the 37 connector and 17 adapter tests on the Pi, and builds before touching the running connector.
+
+It then guides local ABRP approval and vehicle selection. It requires a fresh Enode reading before recreating only the connector. A failed connector verification triggers an attempt to restore the old tagged image using the original Compose settings. No evcc restart or charging command is performed. Six offline installer tests cover preflight, narrow overrides and rollback behavior. The installer has not been executed against the live Pi by the assistant.
+
+Keep `/opt/smart-ev-abrp-release-<timestamp>` after installation: it contains the source, Compose override and root-only `apply-connector.sh` and `rollback-connector.sh` launchers. Use those launchers for subsequent recreation instead of running an older Compose command that omits the new override. The script prints their exact paths. Docker's restart policy retains the deployed configuration across reboot.
+
+If the Compose hash differs, installation stops without modifying the container; resolve the original deployment configuration first. If ABRP approval or fresh telemetry is unavailable, the existing connector remains running; the isolated adapter may have been installed and can be diagnosed locally before rerunning. No secrets are printed beyond the short-lived approval link intended only for your local terminal. Do not share that link or the credential files.
+
+### Manual alternative
+
 1. Install and locally authorize the sidecar using [PR #8's deployment guide](https://github.com/cpanayiotou/Smart_EV_AI/blob/codex/abrp-read-only/docs/ABRP_DEPLOYMENT.md). Validate its fresh/expired SoC directly on port 7081 first.
 2. Establish SSH locally as `smartai@smart-ev-ai.local` (or `smartai@10.1.1.71` if that address still belongs to this Pi). Use an existing key or type the password only into your own SSH terminal. Never send it in chat. Installing a public key is a separate local account action; this change does not create one or modify SSH settings.
 3. Use the existing connector deployment checkout, documented upstream as `~/smart-ev-ai/connector-source`. Verify that it is actually the deployed checkout and that its Compose settings reproduce the existing container before recreating anything. Do not use the repository-root Compose stack.

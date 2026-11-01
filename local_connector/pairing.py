@@ -21,7 +21,7 @@ CONNECTOR_TOKEN = os.getenv("SMART_EV_CONNECTOR_TOKEN", "")
 POLL_SECONDS = max(5, int(os.getenv("SMART_EV_POLL_SECONDS", "15")))
 TIMEOUT = float(os.getenv("SMART_EV_CLOUD_TIMEOUT_SECONDS", "10"))
 PROTOCOL = "0.3"
-ALLOWED_COMMANDS = {"evcc.health", "evcc.state"}
+ALLOWED_COMMANDS = {"evcc.health", "evcc.state", "abrp.fields"}
 
 
 class PairingResponseError(ValueError):
@@ -53,6 +53,9 @@ def _request(path: str, method: str = "GET", body: dict[str, Any] | None = None,
     headers = {"Accept": "application/json", "Content-Type": "application/json"}
     if path == '/api/public/local-connectors/work' and control.enabled():
         headers['X-Smart-EV-Control'] = 'mode-v1'
+    if (path == '/api/public/local-connectors/work'
+            and os.getenv('CONNECTOR_ABRP_READONLY', 'false').lower() == 'true'):
+        headers['X-Smart-EV-Telemetry'] = 'abrp-fields-v1'
     if token:
         headers["Authorization"] = f"Bearer {token}"
     data = json.dumps(body).encode() if body is not None else None
@@ -100,7 +103,8 @@ def _result(token: str, request_id: str, command: str, ok: bool,
 
 def run(token: str, state_reader: Callable[[], dict[str, Any]],
         health_reader: Callable[[], dict[str, Any]] | None = None,
-        poll_seconds: int = POLL_SECONDS, status_callback=lambda status: None) -> None:
+        poll_seconds: int = POLL_SECONDS, status_callback=lambda status: None,
+        abrp_reader: Callable[[], dict[str, Any]] | None = None) -> None:
     """Poll telemetry and explicitly authorized manual controls."""
     interval = max(5, poll_seconds)
     while True:
@@ -135,7 +139,12 @@ def run(token: str, state_reader: Callable[[], dict[str, Any]],
 
                 started = time.monotonic()
                 try:
-                    if command == "evcc.state":
+                    if command == 'abrp.fields':
+                        if (abrp_reader is None or item.get('params', {}) != {}
+                                or os.getenv('CONNECTOR_ABRP_READONLY', 'false').lower() != 'true'):
+                            raise ValueError('ABRP telemetry unavailable')
+                        data = abrp_reader()
+                    elif command == "evcc.state":
                         data = state_reader()
                     elif health_reader is not None:
                         data = health_reader()

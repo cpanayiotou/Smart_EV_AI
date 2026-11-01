@@ -1,0 +1,18 @@
+# Vehicle device fragment, not a replacement evcc configuration.
+# Preserve existing capacity, charging limits and loadpoint settings if editing a vehicle.
+type: custom
+title: Audi e-tron Sportback 55
+capacity: 86.5
+soc:
+  source: http
+  uri: http://10.1.1.71:7080/v1/abrp/soc
+  timeout: 5s
+# Enable these only after each endpoint returns HTTP 200 and a numeric value.
+# odometer:
+#   source: http
+#   uri: http://10.1.1.71:7080/v1/abrp/odometer
+#   timeout: 5s
+# range:
+#   source: http
+#   uri: http://10.1.1.71:7080/v1/abrp/range
+#   timeout: 5s

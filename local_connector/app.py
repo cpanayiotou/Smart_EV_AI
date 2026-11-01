@@ -17,6 +17,8 @@ from ipaddress import ip_address
 from socket import gethostbyname
 from typing import Any
 
+import abrp
+
 EVCC_URL = os.getenv("EVCC_URL", "http://127.0.0.1:7070").rstrip("/")
 LISTEN_HOST = os.getenv("CONNECTOR_HOST", "0.0.0.0")
 LISTEN_PORT = int(os.getenv("CONNECTOR_PORT", "7080"))
@@ -94,6 +96,36 @@ class Handler(BaseHTTPRequestHandler):
         self.wfile.write(payload)
 
     def do_GET(self) -> None:
+        if self.path in ('/v1/abrp/fields', '/v1/abrp/odometer', '/v1/abrp/range'):
+            status, payload = abrp.read_fields()
+            if self.path != '/v1/abrp/fields':
+                key = 'odometer' if self.path.endswith('/odometer') else 'est_battery_range'
+                field = payload.get('fields', {}).get(key, {})
+                if status == 200 and field.get('available') is True:
+                    raw = str(field['value']).encode('ascii')
+                    self.send_response(200)
+                    self.send_header('Content-Type', 'text/plain')
+                    self.send_header('Cache-Control', 'no-store')
+                    self.send_header('Content-Length', str(len(raw)))
+                    self.end_headers()
+                    self.wfile.write(raw)
+                    return
+                status, payload = 503, {'available': False, 'value': None, 'reason': 'field_unavailable'}
+            self._json(status, payload)
+            return
+        if self.path in ('/v1/abrp/telemetry', '/v1/abrp/soc', '/v1/abrp/display'):
+            status, payload = abrp.read(display=self.path == '/v1/abrp/display')
+            if self.path == '/v1/abrp/soc' and status == 200:
+                raw = str(payload['soc_percent']).encode('ascii')
+                self.send_response(200)
+                self.send_header('Content-Type', 'text/plain')
+                self.send_header('Cache-Control', 'no-store')
+                self.send_header('Content-Length', str(len(raw)))
+                self.end_headers()
+                self.wfile.write(raw)
+            else:
+                self._json(status, payload)
+            return
         if self.path == "/health":
             self._json(200, health())
             return

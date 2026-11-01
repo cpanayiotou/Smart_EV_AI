@@ -12,6 +12,12 @@ SPEC.loader.exec_module(installer)
 
 
 class InstallerTests(unittest.TestCase):
+    def test_upgrade_rejects_unrecognized_adapter(self):
+        self.assertTrue(installer.known_adapter(b'new', b'new'))
+        self.assertFalse(installer.known_adapter(b'custom local edit', b'new'))
+        with patch.object(installer, 'PREVIOUS_ADAPTER_SHA256', installer.hashlib.sha256(b'old reviewed').hexdigest()):
+            self.assertTrue(installer.known_adapter(b'old reviewed', b'new'))
+
     def test_requires_exact_running_host_network_compose_service(self):
         data = {'State': {'Running': True}, 'HostConfig': {'NetworkMode': 'host'}, 'Config': {'Labels': {
             'com.docker.compose.service': 'smart-ev-connector',

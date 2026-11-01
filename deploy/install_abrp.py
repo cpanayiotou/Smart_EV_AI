@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Run locally on the Pi: sudo python3 install_abrp.py. No chat credentials."""
 import io
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -16,8 +17,9 @@ import tarfile
 import time
 import urllib.request
 
-ADAPTER = '1aeb68d7a2b8d8b1b7ed9e30d1cbcaf48e407b5d'
-CONNECTOR = '881910eba2d4b6cecf57553d8bd2a0a495904874'
+ADAPTER = 'e39115a478a27f4169c565af5c0c128548210631'
+CONNECTOR = '796718d234559b1a7c71e88bdffdd781c3572180'
+PREVIOUS_ADAPTER_SHA256 = 'a8fddc56d723c9bf7d4c0db10129259c18ec87b2ab2ac04781c58cf3cc86a4ca'
 REPO = 'cpanayiotou/Smart_EV_AI'
 SERVICE = 'smart-ev-connector'
 ENV = dict(os.environ)
@@ -25,6 +27,10 @@ ENV = dict(os.environ)
 
 class Stop(Exception):
     pass
+
+
+def known_adapter(installed, desired):
+    return installed == desired or hashlib.sha256(installed).hexdigest() == PREVIOUS_ADAPTER_SHA256
 
 
 def run(args, capture=False):
@@ -165,8 +171,10 @@ def main():
     code = (release / 'backend/abrp_adapter.py').read_bytes()
     unit = Path('/etc/systemd/system/smart-ev-abrp.service')
     unit_code = (release / 'deploy/smart-ev-abrp.service').read_bytes()
-    if target.exists() and target.read_bytes() != code:
+    if target.exists() and not known_adapter(target.read_bytes(), code):
         raise Stop('A different adapter is already installed; it has not been replaced.')
+    if target.exists():
+        (release / 'previous_adapter.py').write_bytes(target.read_bytes())
     if unit.exists() and unit.read_bytes() != unit_code:
         raise Stop('A different adapter unit already exists; it has not been replaced.')
     active = subprocess.run(['systemctl', 'is-active', '--quiet', 'smart-ev-abrp']).returncode == 0
@@ -204,10 +212,15 @@ def main():
         run(local + ['login', '--credentials', credentials])
     print('Select your Audi from this local vehicle list:', flush=True)
     run(local + ['vehicles', '--credentials', credentials])
-    vehicle = input('Audi ABRP vehicle_id: ').strip()
+    config = Path('/etc/smart-ev-abrp.conf')
+    existing = config.read_text().strip() if config.exists() else ''
+    vehicle = existing.removeprefix('ABRP_VEHICLE_ID=') if existing.startswith('ABRP_VEHICLE_ID=') else ''
+    if not vehicle.isascii() or not vehicle.isdigit() or int(vehicle) <= 0:
+        vehicle = input('Audi ABRP vehicle_id: ').strip()
+    else:
+        print('Keeping your configured Audi vehicle ID.', flush=True)
     if not vehicle.isascii() or not vehicle.isdigit() or int(vehicle) <= 0:
         raise Stop('A positive numeric vehicle ID is required. The connector has not been changed.')
-    config = Path('/etc/smart-ev-abrp.conf')
     config.write_text('ABRP_VEHICLE_ID=' + str(int(vehicle)) + '\n')
     config.chmod(0o644)
     unit.write_bytes(unit_code)
@@ -215,25 +228,25 @@ def main():
     run(['systemd-analyze', 'verify', str(unit)])
     run(['systemctl', 'daemon-reload'])
     run(['systemctl', 'start', 'smart-ev-abrp'])
-    print('Waiting up to 90 seconds for fresh, timestamped Enode SoC...', flush=True)
+    print('Waiting up to 90 seconds for timestamped Enode display data (older readings are labelled stale)...', flush=True)
     for _ in range(45):
         try:
-            sample = get('/v1/abrp/telemetry', 7081)
-            if sample.get('available') is True and sample.get('vehicle_id') == int(vehicle):
+            sample = get('/v1/abrp/display', 7081)
+            if sample.get('display_available') is True and sample.get('vehicle_id') == int(vehicle):
                 break
         except Exception:
             pass
         time.sleep(2)
     else:
-        raise Stop('Adapter is installed, but no fresh Enode SoC is available. Connector remains unchanged. Check http://127.0.0.1:7081/v1/abrp/telemetry locally; rerun after resolving it.')
-    print('Fresh SoC verified. Updating only the connector; evcc remains running.', flush=True)
+        raise Stop('Adapter is installed, but validated Enode display data is unavailable. Connector remains unchanged. Check http://127.0.0.1:7081/v1/abrp/display locally.')
+    print('Last-known SoC verified. Updating only the connector; evcc remains running.', flush=True)
 
     def check():
         for _ in range(20):
             try:
                 after = get('/health')
-                sample = get('/v1/abrp/telemetry')
-                if (after.get('status') == 'running' and sample.get('available') is True
+                sample = get('/v1/abrp/display')
+                if (after.get('status') == 'running' and sample.get('display_available') is True
                         and all(after.get(k) == before.get(k) for k in ('read_only', 'control_capable'))):
                     return
             except Exception:
@@ -246,7 +259,8 @@ def main():
         raise Stop('Connector or Compose settings changed during setup. Leaving that deployment unchanged.')
     replace_connector(apply_command, rollback_command, check)
     run(['systemctl', 'enable', 'smart-ev-abrp'])
-    print('Installed. Read-only telemetry: http://smart-ev-ai.local:7080/v1/abrp/telemetry')
+    print('Installed. Battery display: http://smart-ev-ai.local:7080/')
+    print('Last-known JSON: http://smart-ev-ai.local:7080/v1/abrp/display')
     print('No charging commands or evcc configuration changes were made.')
     print('Keep this release directory; Docker uses its override configuration.')
     print('Reapply: sudo ' + str(release / 'apply-connector.sh'))

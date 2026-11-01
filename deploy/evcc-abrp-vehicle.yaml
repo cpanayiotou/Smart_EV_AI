@@ -1,0 +1,10 @@
+# Vehicle device fragment, not a replacement evcc configuration.
+# Preserve existing capacity, charging limits and loadpoint settings if editing a vehicle.
+type: custom
+title: Audi e-tron (ABRP)
+soc:
+  source: http
+  uri: http://127.0.0.1:7080/v1/abrp/soc
+  timeout: 5s
+# Loopback requires evcc to share the Pi host network namespace.
+# Otherwise use the Pi LAN address reachable from evcc, e.g. http://10.1.1.71:7080/...

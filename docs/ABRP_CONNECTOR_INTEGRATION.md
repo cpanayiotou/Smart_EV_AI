@@ -1,5 +1,9 @@
 # ABRP read-only routes on the existing connector
 
+## Current measurement-age policy
+
+The owner selected a **24-hour** limit. Measurements up to 86400 seconds old are available to `/v1/abrp/soc`; older ones are display-only. Successful adapter polling must still be recent (within 900 seconds). This supersedes the earlier 15-minute SoC descriptions below. No charging commands are introduced.
+
 ## Last-known battery display
 
 The connector now exposes `/v1/abrp/display` and shows a battery panel on its local setup page. Valid older Enode SoC is labelled **Stale**, with its measurement age. The display field is `last_known_soc_percent`; stale data retains `soc_percent: null` and `available: false`. `/v1/abrp/soc` continues to return HTTP 503 for stale readings. No charging behavior changes. The guided installer accepts valid display data, including stale readings, and can upgrade the original pinned adapter while preserving local authorization. This supersedes the fresh-only installation requirements below.

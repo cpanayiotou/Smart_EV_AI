@@ -17,7 +17,7 @@ import tarfile
 import time
 import urllib.request
 
-ADAPTER = 'e39115a478a27f4169c565af5c0c128548210631'
+ADAPTER = '34a178182c948feafe2f3c52fe0f62faa4d58331'
 CONNECTOR = 'f0357ba0345a17a27fecfb27aa12abf4c720e099'
 PREVIOUS_ADAPTER_SHA256 = 'a8fddc56d723c9bf7d4c0db10129259c18ec87b2ab2ac04781c58cf3cc86a4ca'
 REPO = 'cpanayiotou/Smart_EV_AI'
@@ -30,7 +30,8 @@ class Stop(Exception):
 
 
 def known_adapter(installed, desired):
-    return installed == desired or hashlib.sha256(installed).hexdigest() == PREVIOUS_ADAPTER_SHA256
+    return installed == desired or hashlib.sha256(installed).hexdigest() in {
+        PREVIOUS_ADAPTER_SHA256, '139b4d880c9064d94ed9b418325f04dc153844e38b159f1b55b1750b2f2d7743'}
 
 
 def run(args, capture=False):
@@ -181,7 +182,7 @@ def main():
         raise Stop('A different adapter is already installed; it has not been replaced.')
     if target.exists():
         (release / 'previous_adapter.py').write_bytes(target.read_bytes())
-    if unit.exists() and unit.read_bytes() != unit_code:
+    if unit.exists() and unit.read_bytes() not in (unit_code, unit_code.replace(b'--max-age-seconds 86400', b'--max-age-seconds 900')):
         raise Stop('A different adapter unit already exists; it has not been replaced.')
     active = subprocess.run(['systemctl', 'is-active', '--quiet', 'smart-ev-abrp']).returncode == 0
     if active:

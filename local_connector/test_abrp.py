@@ -69,6 +69,16 @@ class IntegrationTests(unittest.TestCase):
             self.assertEqual(self.request()[0], 503)
         self.assertEqual(self.calls, [])
 
+    def test_24_hour_reading_policy_keeps_recent_poll_requirement(self):
+        self.payload.update(max_age_seconds=86400, age_seconds=7200,
+                            soc_timestamp=time.time()-7200)
+        self.assertEqual(self.request('/v1/abrp/soc')[:2], (200, '51'))
+        self.payload.update(age_seconds=86401, soc_timestamp=time.time()-86401)
+        self.assertEqual(self.request('/v1/abrp/soc')[0], 503)
+        self.payload.update(age_seconds=7200, soc_timestamp=time.time()-7200,
+                            fetched_at=time.time()-901)
+        self.assertEqual(self.request('/v1/abrp/soc')[0], 503)
+
     def test_stale_display_does_not_enable_numeric_endpoint(self):
         self.payload.update(available=False, soc_percent=None, last_known_soc_percent=51,
                             display_available=True, stale=True, age_seconds=4800,
@@ -96,7 +106,7 @@ class IntegrationTests(unittest.TestCase):
                            ('soc_percent', float('nan')), ('soc_percent', True),
                            ('age_seconds', 901), ('age_seconds', -1),
                            ('source', 'other'), ('available', False),
-                           ('read_only', False), ('max_age_seconds', 9999)):
+                           ('read_only', False), ('max_age_seconds', 86401)):
             original = self.payload[key]
             self.payload[key] = value
             with self.subTest(key=key, value=value):

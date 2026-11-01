@@ -45,10 +45,10 @@ def read(display=False):
                 or data.get('source') != 'abrp/enode'
                 or type(vehicle) is not int or vehicle <= 0
                 or not all(number(x) for x in (soc, ts, age, fetched, max_age))
-                or not 0 <= soc <= 100 or not 60 <= max_age <= 900
+                or not 0 <= soc <= 100 or not 60 <= max_age <= 86400
                 or ts <= 0 or age < 0 or (not display and age > max_age)
                 or now - ts < -30 or (not display and now - ts > max_age)
-                or not -30 <= now - fetched <= max_age):
+                or not -30 <= now - fetched <= 900):
             return 503, unavailable
         # Copy only the public contract, never arbitrary upstream fields/errors.
         result = {key: data[key] for key in (

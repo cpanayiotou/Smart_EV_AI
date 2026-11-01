@@ -1,0 +1,29 @@
+[Unit]
+Description=Smart EV AI read-only ABRP telemetry sidecar
+After=network-online.target time-sync.target
+Wants=network-online.target time-sync.target
+
+[Service]
+Type=simple
+User=smart-ev-abrp
+Group=smart-ev-abrp
+StateDirectory=smart-ev-abrp
+StateDirectoryMode=0700
+UMask=0077
+EnvironmentFile=/etc/smart-ev-abrp.conf
+ExecStart=/usr/bin/python3 /opt/smart-ev-abrp/abrp_adapter.py serve --credentials /var/lib/smart-ev-abrp/tokens.json --vehicle-id ${ABRP_VEHICLE_ID} --port 7081 --poll-seconds 600 --max-age-seconds 86400
+Restart=on-failure
+RestartSec=60
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+CapabilityBoundingSet=
+
+[Install]
+WantedBy=multi-user.target

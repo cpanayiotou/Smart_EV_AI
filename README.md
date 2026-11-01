@@ -31,3 +31,8 @@ Use official/upstream evcc as the proven charging foundation. Smart EV AI is a s
 ## Status
 
 Initial project scaffold.
+
+An experimental read-only ABRP/Enode Raspberry Pi sidecar is available in
+`backend/abrp_adapter.py`. See [deployment and validation instructions](docs/ABRP_DEPLOYMENT.md)
+for local authorization, freshness checks, the port-7080 connector boundary,
+and the parallel official OAuth2 access request. It does not control charging.

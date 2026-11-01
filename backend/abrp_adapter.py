@@ -259,7 +259,7 @@ def normalize(items, vehicle_id, now):
 
 
 class State:
-    def __init__(self, vehicle_id, max_age=900):
+    def __init__(self, vehicle_id, max_age=86400):
         self.vehicle_id, self.max_age = vehicle_id, max_age
         self.lock = threading.Lock()
         self.sample, self.received, self.reason = None, 0, "not_ready"
@@ -357,12 +357,12 @@ def main():
     parser.add_argument("--vehicle-id", type=int)
     parser.add_argument("--port", type=int, default=7081)
     parser.add_argument("--poll-seconds", type=int, default=600)
-    parser.add_argument("--max-age-seconds", type=int, default=900)
+    parser.add_argument("--max-age-seconds", type=int, default=86400)
     args = parser.parse_args()
     if os.name != "posix":
         parser.error("credential-bearing commands require Linux/POSIX; run them on the Raspberry Pi")
-    if not 60 <= args.poll_seconds <= 3600 or not 60 <= args.max_age_seconds <= 3600:
-        parser.error("poll and max age must be between 60 and 3600 seconds")
+    if not 60 <= args.poll_seconds <= 3600 or not 60 <= args.max_age_seconds <= 86400:
+        parser.error("poll must be 60..3600 seconds; max age must be 60..86400 seconds")
     if args.command == "serve" and (not args.vehicle_id or args.vehicle_id < 1 or args.port in (7070, 7080) or not 1024 <= args.port <= 65535):
         parser.error("serve needs a positive vehicle ID and an unoccupied port other than 7070/7080")
     try:

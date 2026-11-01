@@ -1,5 +1,9 @@
 # Read-only ABRP / Enode adapter for Raspberry Pi
 
+## Current policy: 24 hours
+
+At the owner's request, the default and deployed SoC measurement-age limit is now **86400 seconds**. Up to and including 24 hours, a valid Enode reading is available to the numeric endpoint. Older measurements are display-only. Repeated polls never change the measurement timestamp. Authentication, provenance, numeric-value and clock checks still apply. This supersedes the earlier 15-minute policy documented below. The connector separately requires a successful adapter fetch within 15 minutes, so a stopped poller cannot silently extend validity.
+
 ## Last-known display update
 
 `GET /v1/abrp/display` returns HTTP 200 for a validated last-known Enode reading, even when older than 15 minutes. `last_known_soc_percent`, `age_seconds` and `stale` are display fields. A stale reading still has `available: false` and `soc_percent: null`; `/v1/abrp/soc` and `/v1/abrp/telemetry` retain HTTP 503 for stale data. Authentication, invalid data and clock errors do not qualify as a successful display reading. No timestamp is refreshed or invented. The guided installer now accepts a valid display reading for read-only installation; older fresh-only installation notes below apply to the original installer.

@@ -21,6 +21,13 @@ def fixture(soc=51, timestamp=NOW - 10):
 
 
 class SafetyTests(unittest.TestCase):
+    def test_default_24_hour_boundary(self):
+        state = State(123)
+        state.update(fixture(timestamp=NOW-86400), NOW, 100)
+        self.assertEqual(state.response(NOW, 100)[0], 200)
+        self.assertEqual(state.response(NOW+1, 101)[0], 503)
+        self.assertEqual(state.response(NOW+1, 101)[1]['last_known_soc_percent'], 51)
+
     def test_login_pkce_state_and_local_persistence(self):
         from urllib.parse import parse_qs, urlparse, urlencode
         for correct_state in (True, False):
@@ -107,7 +114,7 @@ class SafetyTests(unittest.TestCase):
             self.assertIsNone(data["soc_percent"])
 
     def test_old_soc_with_fresh_other_fields(self):
-        state = State(123)
+        state = State(123, 900)
         state.update(fixture(timestamp=NOW - 901), NOW, 100)
         self.assertEqual(state.response(NOW, 100)[0], 503)
         sample = state.response(NOW, 100)[1]
@@ -181,7 +188,7 @@ class SafetyTests(unittest.TestCase):
 
 class HttpIntegrationTests(unittest.TestCase):
     def setUp(self):
-        self.state = State(123)
+        self.state = State(123, 900)
         self.server = HTTPServer(("127.0.0.1", 0), handler(self.state))
         self.thread = threading.Thread(target=self.server.serve_forever)
         self.thread.start()

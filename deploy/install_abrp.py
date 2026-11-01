@@ -18,7 +18,7 @@ import time
 import urllib.request
 
 ADAPTER = '703c42af787be38bea4bf516e31671d0158b54b5'
-CONNECTOR = 'f9b506f17431831700d7dca61e39ba3417663627'
+CONNECTOR = '3415e48578fdd08f6746481828d5054c57289c03'
 PREVIOUS_ADAPTER_SHA256 = 'a8fddc56d723c9bf7d4c0db10129259c18ec87b2ab2ac04781c58cf3cc86a4ca'
 REPO = 'cpanayiotou/Smart_EV_AI'
 SERVICE = 'smart-ev-connector'
@@ -272,6 +272,8 @@ def main():
     print('Installed. Battery display: http://smart-ev-ai.local:7080/')
     print('Last-known JSON: http://smart-ev-ai.local:7080/v1/abrp/display')
     print('Full telemetry: http://smart-ev-ai.local:7080/v1/abrp/fields')
+    print('Cloud telemetry: abrp.fields capability enabled for the existing paired Smart EV AI cloud.')
+    print('The matching cloud receiver must be published before readings appear on its dashboard.')
     try:
         fields = get('/v1/abrp/fields')['fields']
         for key, label in (('odometer', 'Odometer'), ('est_battery_range', 'Range')):

@@ -1,5 +1,9 @@
 # Read-only ABRP / Enode adapter for Raspberry Pi
 
+## Expanded telemetry
+
+`/v1/abrp/fields` exports all supported scalar telemetry in the selected vehicle's `tlm` block with per-field source, measurement time, age, units and last-known value. Unsupported complex fields are listed by name. Secrets/session envelopes are excluded. `/v1/abrp/odometer` and `/v1/abrp/range` provide independently validated numeric km values for evcc. Missing SoC does not block other valid fields; missing timestamps are never borrowed from another field. The connector page displays the expanded feed. See the connector branch's `docs/ABRP_FULL_TELEMETRY.md` for evcc configuration and limitations.
+
 ## Current policy: 24 hours
 
 At the owner's request, the default and deployed SoC measurement-age limit is now **86400 seconds**. Up to and including 24 hours, a valid Enode reading is available to the numeric endpoint. Older measurements are display-only. Repeated polls never change the measurement timestamp. Authentication, provenance, numeric-value and clock checks still apply. This supersedes the earlier 15-minute policy documented below. The connector separately requires a successful adapter fetch within 15 minutes, so a stopped poller cannot silently extend validity.

@@ -235,11 +235,61 @@ def number(value):
     return type(value) in (int, float) and math.isfinite(value)
 
 
-def normalize(items, vehicle_id, now):
+def selected_vehicle(items, vehicle_id):
     selected = [x for x in items if isinstance(x, dict) and type(x.get("vehicle_id")) is int and x["vehicle_id"] == vehicle_id]
     if len(selected) != 1:
         raise Unavailable("vehicle_missing_or_ambiguous")
-    item = selected[0]
+    return selected[0]
+
+
+UNITS = {'soc': '%', 'soh': '%', 'soe': 'Wh', 'odometer': 'km', 'est_battery_range': 'km',
+         'power': 'kW', 'hvac_power': 'kW', 'voltage': 'V', 'current': 'A',
+         'speed': 'km/h', 'heading': 'degrees', 'lat': 'degrees', 'lon': 'degrees',
+         'battery_capacity': 'kWh', 'capacity': 'kWh', 'kwh_charged': 'kWh',
+         'charge_energy_added': 'kWh', 'elevation': 'm', 'weight': 'kg',
+         'calib_ref_cons': 'Wh/km', 'max_speed': 'km/h', 'calib_max_speed': 'km/h'}
+for _temperature in ('ext_temp', 'batt_temp', 'cabin_temp', 'vehicle_temp', 'cabin_set_point'):
+    UNITS[_temperature] = '°C'
+SECRET_KEY = re.compile(r'token|password|secret|session|authorization|cookie|api.?key|credential', re.I)
+
+
+def extract_fields(item):
+    """Only the vehicle telemetry block; never the account/session envelope."""
+    tlm = item.get('tlm')
+    if not isinstance(tlm, dict):
+        raise Unavailable('invalid_telemetry')
+    timestamps = tlm.get('timestamps') if isinstance(tlm.get('timestamps'), dict) else {}
+    providers = tlm.get('providers') if isinstance(tlm.get('providers'), dict) else {}
+    fields, omitted = {}, []
+
+    def visit(key, value, parent=None):
+        if len(fields) >= 256 or SECRET_KEY.search(key):
+            return
+        if isinstance(value, dict) and parent is None:
+            for child, nested in value.items():
+                if isinstance(child, str) and re.fullmatch(r'[A-Za-z0-9_]{1,64}', child):
+                    visit(key + '.' + child, nested, key)
+            return
+        valid = value is None or type(value) is bool or number(value)
+        if isinstance(value, str):
+            valid = len(value) <= 256
+        if not valid:
+            omitted.append(key)
+            return
+        ts = timestamps.get(key, timestamps.get(parent) if parent else None)
+        provider = providers.get(key, providers.get(parent) if parent else None)
+        fields[key] = {'last_known_value': value, 'timestamp': ts if number(ts) else None,
+                       'provider': provider if isinstance(provider, str) and re.fullmatch(r'[\w-]{1,64}', provider) else None,
+                       'unit': UNITS.get(key)}
+    for key, value in tlm.items():
+        if isinstance(key, str) and re.fullmatch(r'[A-Za-z0-9_]{1,64}', key) and key not in ('utc', 'timestamps', 'providers'):
+            visit(key, value)
+    diagnostics = {k: item[k] for k in ('is_connected', 'is_asleep', 'tlm_authorized', 'ota_is_connected', 'local_is_connected') if type(item.get(k)) is bool}
+    return fields, omitted, diagnostics
+
+
+def normalize(items, vehicle_id, now):
+    item = selected_vehicle(items, vehicle_id)
     tlm = item.get("tlm")
     if not isinstance(tlm, dict):
         raise Unavailable("invalid_telemetry")
@@ -264,11 +314,32 @@ class State:
         self.lock = threading.Lock()
         self.sample, self.received, self.reason = None, 0, "not_ready"
         self.latest_ts, self.latest_soc = 0, None
+        self.fields, self.omitted, self.diagnostics = {}, [], {}
+        self.fields_reason, self.field_history = 'not_ready', {}
+        self.fields_fetched, self.fields_received = 0, 0
 
     def update(self, items, now=None, monotonic=None):
         now = time.time() if now is None else now
         monotonic = time.monotonic() if monotonic is None else monotonic
-        sample = normalize(items, self.vehicle_id, now)
+        item = selected_vehicle(items, self.vehicle_id)
+        fields, omitted, diagnostics = extract_fields(item)
+        with self.lock:
+            for key, field in fields.items():
+                ts, value = field['timestamp'], field['last_known_value']
+                previous = self.field_history.get(key)
+                if previous and number(ts) and (ts < previous[0] or (ts == previous[0] and value != previous[1])):
+                    field['timestamp'] = None
+                    field['invalid_reason'] = 'timestamp_regression'
+                elif number(ts) and 0 < ts <= now + 30:
+                    self.field_history[key] = (ts, value)
+            self.fields, self.omitted, self.diagnostics = fields, omitted, diagnostics
+            self.fields_fetched, self.fields_received, self.fields_reason = now, monotonic, None
+        try:
+            sample = normalize(items, self.vehicle_id, now)
+        except Unavailable as exc:
+            with self.lock:
+                self.reason = str(exc)
+            return  # Other independently timestamped fields remain usable.
         with self.lock:
             ts, soc = sample["soc_timestamp"], sample["soc_percent"]
             if ts < self.latest_ts or (ts == self.latest_ts and soc != self.latest_soc):
@@ -279,6 +350,38 @@ class State:
     def fail(self, reason):
         with self.lock:
             self.reason = reason
+            self.fields_reason = reason
+
+    def field_response(self, now=None, monotonic=None):
+        now = time.time() if now is None else now
+        monotonic = time.monotonic() if monotonic is None else monotonic
+        with self.lock:
+            if self.fields_reason:
+                return 503, {'available': False, 'reason': self.fields_reason, 'fields': {}, 'read_only': True}
+            elapsed = max(0, monotonic - self.fields_received)
+            output = {}
+            for key, record in self.fields.items():
+                field = dict(record)
+                ts, value = field['timestamp'], field['last_known_value']
+                clock_valid = number(ts) and 0 < ts <= now + 30
+                age = max(0, now-ts, self.fields_fetched-ts+elapsed) if clock_valid else None
+                valid_value = value is not None
+                if key in ('odometer', 'est_battery_range'):
+                    valid_value = number(value) and value >= 0
+                usable = (clock_valid and age <= self.max_age and valid_value
+                          and field['provider'] == 'enode' and self.diagnostics.get('tlm_authorized') is not False
+                          and elapsed <= 900 and now >= self.fields_fetched-30)
+                field.update(value=value if usable else None, available=bool(usable),
+                             age_seconds=round(age, 2) if age is not None else None,
+                             stale=age > self.max_age if age is not None else None,
+                             max_age_seconds=self.max_age)
+                if not usable:
+                    field['reason'] = field.get('invalid_reason') or ('missing_or_invalid_timestamp' if not clock_valid else
+                        'stale' if age > self.max_age else 'unverified_or_unavailable')
+                output[key] = field
+            return 200, {'vehicle_id': self.vehicle_id, 'fetched_at': self.fields_fetched,
+                         'read_only': True, 'fields': output, 'omitted_fields': self.omitted,
+                         'connection': dict(self.diagnostics)}
 
     def response(self, now=None, monotonic=None):
         now = time.time() if now is None else now
@@ -309,6 +412,24 @@ def handler(state):
             pass
 
         def do_GET(self):
+            if self.path in ('/v1/abrp/fields', '/v1/abrp/odometer', '/v1/abrp/range'):
+                code, payload = state.field_response()
+                scalar = self.path.rsplit('/', 1)[-1]
+                plain = False
+                if scalar != 'fields':
+                    key = {'odometer': 'odometer', 'range': 'est_battery_range'}[scalar]
+                    field = payload.get('fields', {}).get(key, {})
+                    plain = code == 200 and field.get('available') is True
+                    code = 200 if plain else 503
+                    payload = field['value'] if plain else {'available': False, 'value': None, 'reason': field.get('reason', 'field_not_reported')}
+                raw = (str(payload) if plain else json.dumps(payload, allow_nan=False)).encode()
+                self.send_response(code)
+                self.send_header('Content-Type', 'text/plain' if plain else 'application/json')
+                self.send_header('Cache-Control', 'no-store')
+                self.send_header('Content-Length', str(len(raw)))
+                self.end_headers()
+                self.wfile.write(raw)
+                return
             if self.path not in ("/v1/abrp/telemetry", "/v1/abrp/soc", "/v1/abrp/display", "/healthz"):
                 self.send_error(404)
                 return

@@ -21,6 +21,60 @@ def fixture(soc=51, timestamp=NOW - 10):
 
 
 class SafetyTests(unittest.TestCase):
+    def test_fields_have_independent_timestamps_and_redact_secrets(self):
+        items = fixture()
+        items[0]['session_id'] = 'SECRET'
+        items[0]['tlm'].update(odometer=12345.6, est_battery_range=260, voltage=400,
+                               refresh_token='SECRET', fw_version='1.2', location={'name': 'Local place', 'token': 'SECRET'})
+        items[0]['tlm']['timestamps'].update(odometer=NOW-100, est_battery_range=NOW-86401)
+        items[0]['tlm']['providers'].update(odometer='enode', est_battery_range='enode')
+        state = State(123)
+        state.update(items, NOW, 100)
+        code, data = state.field_response(NOW, 100)
+        self.assertEqual(code, 200)
+        self.assertNotIn('SECRET', json.dumps(data))
+        self.assertEqual(data['fields']['odometer']['value'], 12345.6)
+        self.assertEqual(data['fields']['odometer']['unit'], 'km')
+        self.assertIsNone(data['fields']['est_battery_range']['value'])
+        self.assertEqual(data['fields']['est_battery_range']['last_known_value'], 260)
+        self.assertIsNone(data['fields']['voltage']['value'])
+        self.assertIsNone(data['fields']['voltage']['timestamp'])
+
+    def test_odometer_survives_missing_soc(self):
+        items = fixture(None)
+        items[0]['tlm'].update(odometer=0)
+        items[0]['tlm']['timestamps']['odometer'] = NOW
+        items[0]['tlm']['providers']['odometer'] = 'enode'
+        state = State(123)
+        state.update(items, NOW, 100)
+        self.assertEqual(state.response(NOW, 100)[0], 503)
+        self.assertEqual(state.field_response(NOW, 100)[1]['fields']['odometer']['value'], 0)
+        state.fail('upstream_unavailable')
+        self.assertEqual(state.field_response(NOW, 100)[0], 503)
+
+    def test_field_regression_and_stopped_polling_fail_closed(self):
+        state = State(123)
+        items = fixture()
+        items[0]['tlm'].update(odometer=10)
+        items[0]['tlm']['timestamps']['odometer'] = NOW-5
+        items[0]['tlm']['providers']['odometer'] = 'enode'
+        state.update(items, NOW, 100)
+        self.assertFalse(state.field_response(NOW+901, 1001)[1]['fields']['odometer']['available'])
+        items[0]['tlm']['timestamps']['odometer'] = NOW-6
+        state.update(items, NOW+1, 101)
+        self.assertFalse(state.field_response(NOW+1, 101)[1]['fields']['odometer']['available'])
+
+    def test_additional_numeric_and_boolean_fields_are_preserved(self):
+        items = fixture()
+        items[0]['tlm'].update(new_numeric_signal=1.5, is_charging=False, unknown_text='unrecognized', invalid=float('inf'))
+        state = State(123)
+        state.update(items, NOW, 100)
+        fields = state.field_response(NOW, 100)[1]
+        self.assertEqual(fields['fields']['new_numeric_signal']['last_known_value'], 1.5)
+        self.assertIs(fields['fields']['is_charging']['last_known_value'], False)
+        self.assertEqual(fields['fields']['unknown_text']['last_known_value'], 'unrecognized')
+        self.assertIn('invalid', fields['omitted_fields'])
+
     def test_default_24_hour_boundary(self):
         state = State(123)
         state.update(fixture(timestamp=NOW-86400), NOW, 100)
@@ -187,6 +241,23 @@ class SafetyTests(unittest.TestCase):
 
 
 class HttpIntegrationTests(unittest.TestCase):
+    def test_http_odometer_and_range(self):
+        import time
+        now = time.time()
+        items = fixture(timestamp=now)
+        items[0]['tlm'].update(odometer=12345, est_battery_range=250)
+        items[0]['tlm']['timestamps'].update(odometer=now, est_battery_range=now-1000)
+        items[0]['tlm']['providers'].update(odometer='enode', est_battery_range='enode')
+        self.state.update(items)
+        with urlopen(self.base + '/v1/abrp/odometer') as response:
+            self.assertEqual(response.read(), b'12345')
+        with urlopen(self.base + '/v1/abrp/fields') as response:
+            self.assertEqual(json.load(response)['fields']['odometer']['unit'], 'km')
+        with self.assertRaises(HTTPError) as caught:
+            urlopen(self.base + '/v1/abrp/range')
+        self.assertEqual(caught.exception.code, 503)
+        caught.exception.close()
+
     def setUp(self):
         self.state = State(123, 900)
         self.server = HTTPServer(("127.0.0.1", 0), handler(self.state))

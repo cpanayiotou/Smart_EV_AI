@@ -61,10 +61,77 @@ class PairingTests(unittest.TestCase):
             self.assertEqual(body['latency_ms'], 2)
 
     def test_no_control_commands_in_allowlist(self):
-        self.assertEqual(pairing.ALLOWED_COMMANDS, {"evcc.health", "evcc.state"})
+        self.assertEqual(pairing.ALLOWED_COMMANDS, {"evcc.health", "evcc.state", "abrp.fields"})
         source = pathlib.Path(__file__).with_name("pairing.py").read_text()
         for forbidden in ["maxcurrent", "mode/smart", "mode/now", "charge_start", "charge_stop"]:
             self.assertNotIn(forbidden, source.lower())
+
+    def test_abrp_roundtrip_independent_of_evcc(self):
+        payload = {'read_only': True, 'fields': {'soc': {'value': 74}}}
+        with patch.dict(pairing.os.environ, {'CONNECTOR_ABRP_READONLY': 'true'}), \
+                patch.object(pairing, '_request') as request, \
+                patch.object(pairing.time, 'sleep', side_effect=InterruptedError):
+            request.side_effect = [{'requests': [{'id': 'id', 'command': 'abrp.fields', 'params': {}}]}, {'ok': True}]
+            with self.assertRaises(InterruptedError):
+                pairing.run('token', lambda: self.fail('evcc must not be read'), abrp_reader=lambda: payload)
+            body = request.call_args.args[2]
+            self.assertEqual(body['command'], 'abrp.fields')
+            self.assertEqual(body['data'], payload)
+            self.assertTrue(body['ok'])
+
+    def test_abrp_disabled_or_remote_parameters_never_read(self):
+        for enabled, params in [('false', {}), ('true', {'url': 'http://example.test'})]:
+            with self.subTest(enabled=enabled, params=params), \
+                    patch.dict(pairing.os.environ, {'CONNECTOR_ABRP_READONLY': enabled}), \
+                    patch.object(pairing, '_request') as request, \
+                    patch.object(pairing.time, 'sleep', side_effect=InterruptedError):
+                request.side_effect = [{'requests': [{'id': 'id', 'command': 'abrp.fields', 'params': params}]}, {'ok': True}]
+                with self.assertRaises(InterruptedError):
+                    pairing.run('token', lambda: {}, abrp_reader=lambda: self.fail('must not read'))
+                body = request.call_args.args[2]
+                self.assertFalse(body['ok'])
+                self.assertNotIn('data', body)
+
+    def test_abrp_failure_does_not_block_next_evcc_result(self):
+        def unavailable():
+            raise RuntimeError('private upstream detail')
+        with patch.dict(pairing.os.environ, {'CONNECTOR_ABRP_READONLY': 'true'}), \
+                patch.object(pairing, '_request') as request, \
+                patch.object(pairing.time, 'sleep', side_effect=InterruptedError):
+            request.side_effect = [{'requests': [
+                {'id': 'a', 'command': 'abrp.fields', 'params': {}},
+                {'id': 'b', 'command': 'evcc.state', 'params': {}}]}, {'ok': True}, {'ok': True}]
+            with self.assertRaises(InterruptedError):
+                pairing.run('token', lambda: {'version': 'test'}, abrp_reader=unavailable)
+            failed = request.call_args_list[1].args[2]
+            self.assertFalse(failed['ok'])
+            self.assertNotIn('private', str(failed))
+            self.assertTrue(request.call_args_list[2].args[2]['ok'])
+
+    def test_cloud_abrp_reader_only_returns_validated_fields(self):
+        from cloud_main import abrp_payload
+        with patch('abrp.read_fields', return_value=(503, {'reason': 'unavailable'})):
+            with self.assertRaises(RuntimeError):
+                abrp_payload()
+        with patch('abrp.read_fields', return_value=(200, {'fields': {}})):
+            self.assertEqual(abrp_payload(), {'fields': {}})
+
+    def test_capability_header_only_on_enabled_work_poll(self):
+        from unittest.mock import MagicMock
+        for enabled, path, expected in [
+                ('true', '/api/public/local-connectors/work', 'abrp-fields-v1'),
+                ('false', '/api/public/local-connectors/work', None),
+                ('true', '/api/public/local-connectors/result', None)]:
+            with self.subTest(enabled=enabled, path=path), \
+                    patch.dict(pairing.os.environ, {'CONNECTOR_ABRP_READONLY': enabled}), \
+                    patch.object(pairing, 'CLOUD_URL', 'https://example.test'), \
+                    patch.object(pairing.urllib.request, 'build_opener') as build:
+                response = MagicMock()
+                response.__enter__.return_value.read.return_value = b'{}'
+                build.return_value.open.return_value = response
+                pairing._request(path, token='test-token')
+                req = build.return_value.open.call_args.args[0]
+                self.assertEqual(req.get_header('X-smart-ev-telemetry'), expected)
 
 
 if __name__ == "__main__":

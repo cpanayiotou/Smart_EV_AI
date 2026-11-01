@@ -3,6 +3,7 @@ import os
 import threading
 import app
 import pairing
+import abrp
 from setup_web import Handler, Setup, local_address
 
 
@@ -15,10 +16,17 @@ def state_payload():
     return state
 
 
+def abrp_payload():
+    status, fields = abrp.read_fields()
+    if status != 200:
+        raise RuntimeError('ABRP unavailable')
+    return fields
+
+
 def start_worker(token, interval, callback):
     threading.Thread(target=pairing.run, args=(token, state_payload),
                      kwargs={'health_reader': app.health, 'poll_seconds': interval,
-                             'status_callback': callback}, daemon=True).start()
+                             'status_callback': callback, 'abrp_reader': abrp_payload}, daemon=True).start()
 
 
 if __name__ == '__main__':

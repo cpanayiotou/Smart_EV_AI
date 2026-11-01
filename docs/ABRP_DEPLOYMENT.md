@@ -1,5 +1,9 @@
 # Read-only ABRP / Enode adapter for Raspberry Pi
 
+## Last-known display update
+
+`GET /v1/abrp/display` returns HTTP 200 for a validated last-known Enode reading, even when older than 15 minutes. `last_known_soc_percent`, `age_seconds` and `stale` are display fields. A stale reading still has `available: false` and `soc_percent: null`; `/v1/abrp/soc` and `/v1/abrp/telemetry` retain HTTP 503 for stale data. Authentication, invalid data and clock errors do not qualify as a successful display reading. No timestamp is refreshed or invented. The guided installer now accepts a valid display reading for read-only installation; older fresh-only installation notes below apply to the original installer.
+
 Status: experimental implementation; **not deployed**. Authenticated Audi telemetry and the existing Pi connector are not yet validated. No charging actuation is implemented. No evcc/Peblar configuration is changed by these instructions.
 
 ## What was verified (2026-11-01)

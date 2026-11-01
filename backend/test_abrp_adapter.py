@@ -110,6 +110,11 @@ class SafetyTests(unittest.TestCase):
         state = State(123)
         state.update(fixture(timestamp=NOW - 901), NOW, 100)
         self.assertEqual(state.response(NOW, 100)[0], 503)
+        sample = state.response(NOW, 100)[1]
+        self.assertEqual(sample['last_known_soc_percent'], 51)
+        self.assertTrue(sample['stale'])
+        self.assertTrue(sample['display_available'])
+        self.assertIsNone(sample['soc_percent'])
 
     def test_failure_clears_available_and_recovery(self):
         state = State(123)
@@ -209,6 +214,20 @@ class HttpIntegrationTests(unittest.TestCase):
             urlopen(self.base + "/v1/abrp/soc")
         self.assertEqual(caught.exception.code, 503)
         self.assertIsNone(json.load(caught.exception)["soc_percent"])
+        caught.exception.close()
+
+    def test_stale_display_is_200_but_soc_is_503(self):
+        import time
+        self.state.update(fixture(timestamp=time.time()-4800))
+        with urlopen(self.base + '/v1/abrp/display') as response:
+            data = json.load(response)
+            self.assertTrue(data['stale'])
+            self.assertFalse(data['available'])
+            self.assertEqual(data['last_known_soc_percent'], 51)
+            self.assertIsNone(data['soc_percent'])
+        with self.assertRaises(HTTPError) as caught:
+            urlopen(self.base + '/v1/abrp/soc')
+        self.assertEqual(caught.exception.code, 503)
         caught.exception.close()
 
 

@@ -290,7 +290,10 @@ class State:
             elapsed = max(0, monotonic - self.received)
             age = max(now - sample["soc_timestamp"], sample["fetched_at"] - sample["soc_timestamp"] + elapsed, 0)
             valid = age <= self.max_age and now >= sample["soc_timestamp"] - 30
-            sample.update(available=valid, age_seconds=round(age, 2), max_age_seconds=self.max_age)
+            clock_valid = now >= sample["soc_timestamp"] - 30
+            sample.update(available=valid, age_seconds=round(age, 2), max_age_seconds=self.max_age,
+                          last_known_soc_percent=sample["soc_percent"] if clock_valid else None,
+                          display_available=clock_valid, stale=not valid)
             if not valid:
                 sample.update(soc_percent=None, reason="stale_or_clock_invalid")
             return (200 if valid else 503), sample
@@ -306,10 +309,12 @@ def handler(state):
             pass
 
         def do_GET(self):
-            if self.path not in ("/v1/abrp/telemetry", "/v1/abrp/soc", "/healthz"):
+            if self.path not in ("/v1/abrp/telemetry", "/v1/abrp/soc", "/v1/abrp/display", "/healthz"):
                 self.send_error(404)
                 return
             code, payload = state.response()
+            if self.path == "/v1/abrp/display" and payload.get("display_available") is True:
+                code = 200
             if self.path == "/healthz":
                 code, payload = 200, {"running": True, "telemetry_available": code == 200, "read_only": True}
             raw = (str(payload["soc_percent"]) if self.path == "/v1/abrp/soc" and code == 200 else json.dumps(payload, allow_nan=False)).encode()

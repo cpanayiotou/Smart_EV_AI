@@ -1,5 +1,8 @@
 # Smart EV local setup (Raspberry Pi / Linux)
 
+Optional read-only ABRP/Enode routes and isolated upgrade instructions:
+[ABRP connector integration](../docs/ABRP_CONNECTOR_INTEGRATION.md).
+
 This connector reads the existing evcc installation at `http://127.0.0.1:7070`.
 It never configures Huawei/Peblar or starts/stops the evcc service. Charging mode changes require the explicit manual-control permissions below.
 

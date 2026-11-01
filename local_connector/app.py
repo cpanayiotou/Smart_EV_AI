@@ -17,6 +17,8 @@ from ipaddress import ip_address
 from socket import gethostbyname
 from typing import Any
 
+import abrp
+
 EVCC_URL = os.getenv("EVCC_URL", "http://127.0.0.1:7070").rstrip("/")
 LISTEN_HOST = os.getenv("CONNECTOR_HOST", "0.0.0.0")
 LISTEN_PORT = int(os.getenv("CONNECTOR_PORT", "7080"))
@@ -94,6 +96,19 @@ class Handler(BaseHTTPRequestHandler):
         self.wfile.write(payload)
 
     def do_GET(self) -> None:
+        if self.path in ('/v1/abrp/telemetry', '/v1/abrp/soc'):
+            status, payload = abrp.read()
+            if self.path == '/v1/abrp/soc' and status == 200:
+                raw = str(payload['soc_percent']).encode('ascii')
+                self.send_response(200)
+                self.send_header('Content-Type', 'text/plain')
+                self.send_header('Cache-Control', 'no-store')
+                self.send_header('Content-Length', str(len(raw)))
+                self.end_headers()
+                self.wfile.write(raw)
+            else:
+                self._json(status, payload)
+            return
         if self.path == "/health":
             self._json(200, health())
             return

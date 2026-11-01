@@ -10,6 +10,7 @@ services:
       CONNECTOR_PORT: "7080"
       CONNECTOR_DATA_DIR: /data
       CONNECTOR_ALLOW_CONTROL: ${CONNECTOR_ALLOW_CONTROL:-false}
+      CONNECTOR_ABRP_READONLY: ${CONNECTOR_ABRP_READONLY:-false}
       EVCC_TIMEOUT_SECONDS: "5"
     volumes:
       - connector-data:/data

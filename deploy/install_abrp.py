@@ -18,7 +18,7 @@ import time
 import urllib.request
 
 ADAPTER = 'e39115a478a27f4169c565af5c0c128548210631'
-CONNECTOR = '796718d234559b1a7c71e88bdffdd781c3572180'
+CONNECTOR = 'f0357ba0345a17a27fecfb27aa12abf4c720e099'
 PREVIOUS_ADAPTER_SHA256 = 'a8fddc56d723c9bf7d4c0db10129259c18ec87b2ab2ac04781c58cf3cc86a4ca'
 REPO = 'cpanayiotou/Smart_EV_AI'
 SERVICE = 'smart-ev-connector'

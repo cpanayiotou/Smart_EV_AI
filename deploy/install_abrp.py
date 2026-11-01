@@ -94,6 +94,7 @@ def extract(commit, destination, prefixes):
             target.parent.mkdir(parents=True, exist_ok=True)
             with archive.extractfile(member) as source:
                 target.write_bytes(source.read())
+            target.chmod(0o644)  # Public source, not credentials; Docker COPY retains modes.
 
 
 def overlay(path, image, source=None):
@@ -167,6 +168,11 @@ def main():
     save_launcher(release / 'apply-connector.sh', apply_command)
     save_launcher(release / 'rollback-connector.sh', rollback_command)
     run(apply_base + ['build', SERVICE])
+    run(['docker', 'run', '--rm', '--network', 'none', '--read-only', '--cap-drop', 'ALL',
+         '--security-opt', 'no-new-privileges', '--entrypoint', 'python', tag, '-B', '-c',
+         "import os, app, abrp, cloud_main, setup_web; from pathlib import Path; "
+         "assert os.getuid() != 0; "
+         "[Path(p).read_bytes() for p in ('/app/wizard.html', '/app/wizard.js', '/app/wizard.css')]"])
     target = Path('/opt/smart-ev-abrp/abrp_adapter.py')
     code = (release / 'backend/abrp_adapter.py').read_bytes()
     unit = Path('/etc/systemd/system/smart-ev-abrp.service')

@@ -1,6 +1,9 @@
 import copy
 import importlib.util
 import json
+import io
+import os
+import tarfile
 from pathlib import Path
 import tempfile
 import unittest
@@ -12,6 +15,26 @@ SPEC.loader.exec_module(installer)
 
 
 class InstallerTests(unittest.TestCase):
+    def test_extracted_source_is_readable_despite_private_umask(self):
+        archive = io.BytesIO()
+        with tarfile.open(fileobj=archive, mode='w:gz') as stream:
+            member = tarfile.TarInfo('repo/local_connector/abrp.py')
+            payload = b'# public source\n'
+            member.size = len(payload)
+            member.mode = 0o600
+            stream.addfile(member, io.BytesIO(payload))
+        with tempfile.TemporaryDirectory() as folder:
+            previous = os.umask(0o077)
+            try:
+                with patch.object(installer.urllib.request, 'urlopen', return_value=io.BytesIO(archive.getvalue())):
+                    installer.extract('fixture', Path(folder), ['local_connector'])
+            finally:
+                os.umask(previous)
+            source = Path(folder) / 'local_connector/abrp.py'
+            self.assertEqual(source.read_bytes(), payload)
+            if os.name == 'posix':
+                self.assertEqual(source.stat().st_mode & 0o777, 0o644)
+
     def test_upgrade_rejects_unrecognized_adapter(self):
         self.assertTrue(installer.known_adapter(b'new', b'new'))
         self.assertFalse(installer.known_adapter(b'custom local edit', b'new'))

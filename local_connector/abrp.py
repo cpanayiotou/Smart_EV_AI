@@ -2,6 +2,7 @@
 import json
 import math
 import os
+import re
 import time
 import urllib.error
 import urllib.request
@@ -9,7 +10,7 @@ import urllib.request
 from pairing import NoRedirect
 
 URL = 'http://127.0.0.1:7081/v1/abrp/telemetry'
-LIMIT = 16 * 1024
+LIMIT = 256 * 1024
 
 
 def enabled():
@@ -18,6 +19,60 @@ def enabled():
 
 def number(value):
     return type(value) in (int, float) and math.isfinite(value)
+
+
+def read_fields():
+    unavailable = {'available': False, 'read_only': True, 'fields': {}, 'reason': 'abrp_unavailable'}
+    if not enabled():
+        return 503, {**unavailable, 'reason': 'abrp_disabled'}
+    try:
+        opener = urllib.request.build_opener(urllib.request.ProxyHandler({}), NoRedirect())
+        with opener.open(URL.replace('/telemetry', '/fields'), timeout=5) as response:
+            raw = response.read(LIMIT+1)
+            if response.status != 200 or len(raw) > LIMIT:
+                return 503, unavailable
+            data = json.loads(raw)
+        now = time.time()
+        if (not isinstance(data, dict) or data.get('read_only') is not True
+                or not number(data.get('fetched_at')) or not -30 <= now-data['fetched_at'] <= 900
+                or type(data.get('vehicle_id')) is not int or data['vehicle_id'] <= 0
+                or not isinstance(data.get('fields'), dict) or len(data['fields']) > 256):
+            return 503, unavailable
+        fields = {}
+        for key, record in data['fields'].items():
+            if (not re.fullmatch(r'[A-Za-z0-9_.]{1,129}', key)
+                    or re.search(r'token|password|secret|session|authorization|cookie|api.?key|credential', key, re.I)
+                    or not isinstance(record, dict)):
+                continue
+            value = record.get('last_known_value')
+            if not (value is None or type(value) is bool or number(value) or isinstance(value, str) and len(value) <= 256):
+                continue
+            ts, age, ttl = (record.get(k) for k in ('timestamp', 'age_seconds', 'max_age_seconds'))
+            valid_time = number(ts) and ts > 0 and ts <= now+30 and number(age) and age >= 0
+            age = max(age, now-ts, 0) if valid_time else None
+            provider = record.get('provider')
+            usable = (record.get('available') is True and valid_time and number(ttl) and 60 <= ttl <= 86400
+                      and age <= ttl and provider == 'enode' and value is not None)
+            if key in ('odometer', 'est_battery_range'):
+                usable = usable and number(value) and value >= 0
+            unit = record.get('unit')
+            fields[key] = {'last_known_value': value, 'value': value if usable else None,
+                           'available': bool(usable), 'timestamp': ts if number(ts) else None,
+                           'age_seconds': round(age, 2) if age is not None else None,
+                           'stale': age > ttl if age is not None and number(ttl) else None,
+                           'max_age_seconds': ttl if number(ttl) else None,
+                           'provider': provider if isinstance(provider, str) and re.fullmatch(r'[\w-]{1,64}', provider) else None,
+                           'unit': unit if isinstance(unit, str) and len(unit) <= 32 else None}
+        connection = data.get('connection', {})
+        return 200, {'vehicle_id': data['vehicle_id'], 'fetched_at': data['fetched_at'],
+                     'read_only': True, 'fields': fields,
+                     'connection': {k: connection[k] for k in ('is_connected', 'is_asleep', 'tlm_authorized', 'ota_is_connected', 'local_is_connected') if type(connection.get(k)) is bool},
+                     'omitted_fields': [k for k in data.get('omitted_fields', []) if isinstance(k, str) and re.fullmatch(r'[A-Za-z0-9_.]{1,129}', k)]}
+    except urllib.error.HTTPError as exc:
+        exc.close()
+        return 503, unavailable
+    except Exception:
+        return 503, unavailable
 
 
 def read(display=False):

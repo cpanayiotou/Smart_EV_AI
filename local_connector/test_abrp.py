@@ -12,6 +12,24 @@ from setup_web import Handler
 
 
 class IntegrationTests(unittest.TestCase):
+    def test_independent_odometer_and_range_routes(self):
+        now = time.time()
+        self.payload = {'vehicle_id': 123, 'read_only': True, 'fetched_at': now, 'fields': {
+            'odometer': {'last_known_value': 12345, 'value': 12345, 'available': True,
+                         'timestamp': now-10, 'age_seconds': 10, 'max_age_seconds': 86400,
+                         'provider': 'enode', 'unit': 'km'},
+            'est_battery_range': {'last_known_value': 250, 'value': 250, 'available': True,
+                                 'timestamp': now-86401, 'age_seconds': 86401, 'max_age_seconds': 86400,
+                                 'provider': 'enode', 'unit': 'km'},
+            'refresh_token': {'last_known_value': 'SECRET'}}, 'connection': {}}
+        self.assertEqual(self.request('/v1/abrp/odometer')[:2], (200, '12345'))
+        code, raw, _ = self.request('/v1/abrp/fields')
+        self.assertEqual(code, 200)
+        self.assertNotIn('SECRET', raw)
+        self.assertEqual(self.request('/v1/abrp/range')[0], 503)
+        self.payload['fields']['odometer']['timestamp'] = None
+        self.assertEqual(self.request('/v1/abrp/odometer')[0], 503)
+
     def setUp(self):
         now = time.time()
         self.payload = dict(available=True, read_only=True, source='abrp/enode',

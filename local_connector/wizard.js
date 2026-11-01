@@ -20,6 +20,27 @@ async function refresh() {
 }
 async function updateStatus() {
   try {
+    const telemetry = await request('/v1/abrp/fields');
+    const rows = Object.entries(telemetry.fields).sort(([a], [b]) => a.localeCompare(b)).map(([name, field]) => {
+      const row = document.createElement('tr');
+      const age = field.age_seconds == null ? 'Unknown' : `${Math.floor(field.age_seconds / 60)} min`;
+      const value = field.last_known_value == null ? 'Not reported' : `${field.last_known_value} ${field.unit || ''}`;
+      const status = field.available ? 'Available' : field.stale ? 'Older than 24 hours' : 'Unverified';
+      for (const text of [name, value, age, field.provider || 'Unknown', status]) {
+        const cell = document.createElement('td');
+        cell.textContent = text;
+        row.appendChild(cell);
+      }
+      return row;
+    });
+    el('telemetry-fields').replaceChildren(...rows);
+    el('telemetry-status').textContent = `${rows.length} reported fields. ` +
+      (telemetry.omitted_fields.length ? `Unsupported fields: ${telemetry.omitted_fields.join(', ')}.` : 'Missing fields are not supplied by ABRP.');
+  } catch (_) {
+    el('telemetry-fields').replaceChildren();
+    el('telemetry-status').textContent = 'Vehicle telemetry unavailable.';
+  }
+  try {
     const battery = await request('/v1/abrp/display');
     const minutes = Math.floor(battery.age_seconds / 60);
     const age = minutes < 1 ? 'less than a minute ago' : `${minutes} minutes ago`;

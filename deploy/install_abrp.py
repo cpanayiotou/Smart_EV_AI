@@ -17,7 +17,7 @@ import tarfile
 import time
 import urllib.request
 
-ADAPTER = '34a178182c948feafe2f3c52fe0f62faa4d58331'
+ADAPTER = '703c42af787be38bea4bf516e31671d0158b54b5'
 CONNECTOR = '09d300c7659b78a060117edde94ce8c29ddc9999'
 PREVIOUS_ADAPTER_SHA256 = 'a8fddc56d723c9bf7d4c0db10129259c18ec87b2ab2ac04781c58cf3cc86a4ca'
 REPO = 'cpanayiotou/Smart_EV_AI'
@@ -31,7 +31,8 @@ class Stop(Exception):
 
 def known_adapter(installed, desired):
     return installed == desired or hashlib.sha256(installed).hexdigest() in {
-        PREVIOUS_ADAPTER_SHA256, '139b4d880c9064d94ed9b418325f04dc153844e38b159f1b55b1750b2f2d7743'}
+        PREVIOUS_ADAPTER_SHA256, '139b4d880c9064d94ed9b418325f04dc153844e38b159f1b55b1750b2f2d7743',
+        '5e31fbeb4e45135fc29bf2742df34a23ad939b0f9a65ba1184eb4d52285b50f1'}
 
 
 def run(args, capture=False):
@@ -253,7 +254,9 @@ def main():
             try:
                 after = get('/health')
                 sample = get('/v1/abrp/display')
+                fields = get('/v1/abrp/fields')
                 if (after.get('status') == 'running' and sample.get('display_available') is True
+                        and isinstance(fields.get('fields'), dict)
                         and all(after.get(k) == before.get(k) for k in ('read_only', 'control_capable'))):
                     return
             except Exception:
@@ -268,6 +271,16 @@ def main():
     run(['systemctl', 'enable', 'smart-ev-abrp'])
     print('Installed. Battery display: http://smart-ev-ai.local:7080/')
     print('Last-known JSON: http://smart-ev-ai.local:7080/v1/abrp/display')
+    print('Full telemetry: http://smart-ev-ai.local:7080/v1/abrp/fields')
+    try:
+        fields = get('/v1/abrp/fields')['fields']
+        for key, label in (('odometer', 'Odometer'), ('est_battery_range', 'Range')):
+            field = fields.get(key, {})
+            value = field.get('value')
+            print(label + ': ' + (str(value) + ' km (available to evcc)' if field.get('available') is True
+                                  else 'not reported or not independently verified; see telemetry table'))
+    except Exception:
+        print('Optional telemetry summary unavailable; inspect the local telemetry table.')
     print('No charging commands or evcc configuration changes were made.')
     print('Keep this release directory; Docker uses its override configuration.')
     print('Reapply: sudo ' + str(release / 'apply-connector.sh'))

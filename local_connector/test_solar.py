@@ -1,10 +1,27 @@
 import unittest
 from datetime import datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
-from solar import daily
+from solar import daily, cloud_daily
 
 
 class SolarTests(unittest.TestCase):
+    def test_cloud_contract_rejects_remote_parameters_and_incomplete_history(self):
+        now = datetime.fromisoformat('2026-11-02T00:30:00+02:00')
+        params = dict(date='2026-11-02', timezone='Europe/Nicosia',
+                      **{'from': '2026-11-02T00:00:00+02:00', 'to': '2026-11-03T00:00:00+02:00'},
+                      aggregate='15m', group='pv')
+        def get(path):
+            return 200, [dict(group='pv', data=[self.row(), self.row('00:15', '00:30')])], 0
+        result = cloud_daily(get, params, now)
+        self.assertEqual(result['energy_kwh'], 2)
+        self.assertEqual(result['source'], 'evcc_history_energy')
+        self.assertNotIn('complete_through_last_interval', result)
+        for bad in [None, {}, {**params, 'url': 'http://external.test'}, {**params, 'date': '2026-11-01'}]:
+            with self.assertRaises(ValueError):
+                cloud_daily(lambda _: self.fail('invalid query must not access evcc'), bad, now)
+        with self.assertRaises(ValueError):
+            cloud_daily(lambda _: (200, [dict(group='pv', data=[self.row('00:15', '00:30')])], 0), params, now)
+
     def read(self, rows, now='2026-11-02T00:30:00+02:00'):
         def get(path):
             self.assertTrue(path.startswith('/api/history/energy?'))

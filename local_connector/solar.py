@@ -5,6 +5,25 @@ import math
 from urllib.parse import urlencode
 
 
+def cloud_daily(get, params, now=None):
+    """Accept only today's exact fixed query; no arbitrary URLs or history ranges."""
+    now = now or datetime.now(timezone.utc)
+    day = now.astimezone(ZoneInfo('Asia/Nicosia')).date()
+    start = datetime.combine(day, time(), ZoneInfo('Asia/Nicosia'))
+    end = datetime.combine(day + timedelta(days=1), time(), ZoneInfo('Asia/Nicosia'))
+    expected = dict(date=str(day), timezone='Europe/Nicosia',
+                    **{'from': start.isoformat(), 'to': end.isoformat()},
+                    aggregate='15m', group='pv')
+    if params != expected:
+        raise ValueError('Invalid daily solar request')
+    result = daily(get, now)
+    # The cloud v1 contract cannot represent missing intervals: fail closed.
+    if not result.pop('complete_through_last_interval'):
+        raise ValueError('Daily history has gaps')
+    result.update(timezone='Europe/Nicosia', source='evcc_history_energy')
+    return result
+
+
 def daily(get, now=None):
     now = now or datetime.now(timezone.utc)
     zone = ZoneInfo('Asia/Nicosia')

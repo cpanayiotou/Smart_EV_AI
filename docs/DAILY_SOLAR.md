@@ -7,7 +7,8 @@ The cloud requests `evcc.pv_daily` only when the outbound worker advertises
 `X-Smart-EV-History: pv-daily-v1`. Enable with
 `CONNECTOR_PV_HISTORY_READONLY=true` (the pinned installer does this).
 
-Parameters are exactly `date`, `timezone` (`Europe/Nicosia`), `from`, `to`,
+Parameters are exactly `date`, `timezone` (`Europe/Nicosia` or its equivalent
+`Asia/Nicosia` alias), `from`, `to`,
 `aggregate` (`15m`), `group` (`pv`). Only the current Cyprus-local calendar day
 is accepted; stale dates, arbitrary ranges, extra parameters and URLs are rejected
 before evcc is contacted. The fixed GET endpoint is `/api/history/energy`.
@@ -15,6 +16,10 @@ before evcc is contacted. The fixed GET endpoint is `/api/history/energy`.
 The result contains `date`, `timezone`, `energy_kwh`, `period_start`, `period_end`,
 `last_interval_end`, `fetched_at`, `source` (`evcc_history_energy`). Only actual
 PV interval energy is summed; the cumulative `pvEnergy` and forecast are not used.
+For the updated cloud contract requesting `Asia/Nicosia`, the source is
+`evcc/history/pv` and `complete_through_last_interval` is also returned. The
+Europe alias preserves the initial eight-field cloud response format. Both
+versions require complete coverage of all completed intervals.
 Missing intervals fail the cloud read instead of presenting a partial total as
 the full total. In-progress intervals are not estimated. The local inspection
 route `/v1/evcc/solar/daily` additionally exposes coverage information and labels

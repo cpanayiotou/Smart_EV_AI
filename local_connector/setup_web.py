@@ -194,7 +194,7 @@ class Handler(app.Handler):
             return
         if self.path == '/health':
             self._json(200, {'status': 'running', 'read_only': not control.enabled(), 'control_capable': control.enabled(),
-                             'automation_capable': automation.capable()})
+                             'automation_capable': automation.capable(), 'target_capable': control.enabled()})
         elif self.path in ('/', '/wizard.js', '/wizard.css'):
             name = {'/': 'wizard.html', '/wizard.js': 'wizard.js', '/wizard.css': 'wizard.css'}[self.path]
             content = Path(__file__).with_name(name).read_bytes()

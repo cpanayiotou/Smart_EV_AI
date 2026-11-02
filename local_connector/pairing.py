@@ -54,6 +54,7 @@ def _request(path: str, method: str = "GET", body: dict[str, Any] | None = None,
     headers = {"Accept": "application/json", "Content-Type": "application/json"}
     if path == '/api/public/local-connectors/work' and control.enabled():
         headers['X-Smart-EV-Control'] = 'mode-v1'
+        headers['X-Smart-EV-Target'] = 'target-v1'
     if path == '/api/public/local-connectors/work' and automation.capable():
         headers['X-Smart-EV-Automation'] = 'lease-v1'
     if (path == '/api/public/local-connectors/work'
@@ -130,7 +131,7 @@ def run(token: str, state_reader: Callable[[], dict[str, Any]],
                 request_id = item.get("id")
                 if not isinstance(command, str) or not isinstance(request_id, str):
                     continue
-                if command in ('evcc.set_mode', 'evcc.automation'):
+                if command in ('evcc.set_mode', 'evcc.automation', 'evcc.set_target'):
                     try:
                         executor = automation.execute if command == 'evcc.automation' else control.execute
                         data = executor(item, lambda rid: _request(

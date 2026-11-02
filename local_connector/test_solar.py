@@ -16,6 +16,10 @@ class SolarTests(unittest.TestCase):
         self.assertEqual(result['energy_kwh'], 2)
         self.assertEqual(result['source'], 'evcc_history_energy')
         self.assertNotIn('complete_through_last_interval', result)
+        updated = cloud_daily(get, {**params, 'timezone': 'Asia/Nicosia'}, now)
+        self.assertEqual(updated['source'], 'evcc/history/pv')
+        self.assertEqual(updated['timezone'], 'Asia/Nicosia')
+        self.assertTrue(updated['complete_through_last_interval'])
         for bad in [None, {}, {**params, 'url': 'http://external.test'}, {**params, 'date': '2026-11-01'}]:
             with self.assertRaises(ValueError):
                 cloud_daily(lambda _: self.fail('invalid query must not access evcc'), bad, now)

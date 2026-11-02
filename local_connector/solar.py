@@ -11,16 +11,23 @@ def cloud_daily(get, params, now=None):
     day = now.astimezone(ZoneInfo('Asia/Nicosia')).date()
     start = datetime.combine(day, time(), ZoneInfo('Asia/Nicosia'))
     end = datetime.combine(day + timedelta(days=1), time(), ZoneInfo('Asia/Nicosia'))
-    expected = dict(date=str(day), timezone='Europe/Nicosia',
+    requested_zone = params.get('timezone') if isinstance(params, dict) else None
+    if requested_zone not in ('Europe/Nicosia', 'Asia/Nicosia'):
+        raise ValueError('Invalid daily solar timezone')
+    expected = dict(date=str(day), timezone=requested_zone,
                     **{'from': start.isoformat(), 'to': end.isoformat()},
                     aggregate='15m', group='pv')
     if params != expected:
         raise ValueError('Invalid daily solar request')
     result = daily(get, now)
     # The cloud v1 contract cannot represent missing intervals: fail closed.
-    if not result.pop('complete_through_last_interval'):
+    if not result['complete_through_last_interval']:
         raise ValueError('Daily history has gaps')
-    result.update(timezone='Europe/Nicosia', source='evcc_history_energy')
+    if requested_zone == 'Europe/Nicosia':
+        # Initial cloud contract. New cloud requests use the equivalent Asia alias
+        # and accept the explicit coverage flag returned by the local reader.
+        result.pop('complete_through_last_interval')
+        result.update(timezone='Europe/Nicosia', source='evcc_history_energy')
     return result
 
 

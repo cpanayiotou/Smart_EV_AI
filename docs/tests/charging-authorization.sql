@@ -12,7 +12,7 @@ DECLARE
   o uuid := gen_random_uuid(); cid uuid; iid uuid; rid uuid; req uuid; v int; res text := '';
   dep timestamptz := date_trunc('milliseconds', now() + interval '5 hours');
   ex timestamptz := date_trunc('milliseconds', now() + interval '50 seconds');
-  lpj jsonb := '{"connected":true,"charging":false,"mode":"off","session_kwh":3.2,"limit_soc":80,"limit_energy_kwh":null,"power_w":0}';
+  lpj jsonb := '{"connected":true,"charging":false,"mode":"off","session_kwh":3.2,"limit_soc":70,"limit_energy_kwh":null,"power_w":0}';
   snap jsonb;
   g text;
 BEGIN

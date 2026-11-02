@@ -7,8 +7,12 @@ import sqlite3
 import time
 import urllib.request
 import uuid
+import threading
 
 import app
+
+# Serialize all writers with the local automation watchdog.
+WRITE_LOCK = threading.RLock()
 
 
 def enabled():
@@ -89,6 +93,11 @@ def post_mode(index, mode):
 
 
 def execute(item, authorize, directory=None):
+    with WRITE_LOCK:
+        return _execute(item, authorize, directory)
+
+
+def _execute(item, authorize, directory=None):
     if not enabled():
         raise ControlError('Local charging controls are disabled')
     identifier, index, mode = validate(item)
@@ -103,7 +112,10 @@ def execute(item, authorize, directory=None):
     validate(item)
     if not enabled():
         raise ControlError('Local charging controls are disabled')
+    # Explicit manual authorization takes ownership from an automated run.
+    import automation
     post_mode(index, mode)
+    automation.relinquish(directory or os.getenv('CONNECTOR_DATA_DIR', '/data'), index)
     for attempt in range(3):
         if state_loadpoint(index).get('mode') == mode:
             return {'loadpoint': index, 'mode': mode, 'verified': True}

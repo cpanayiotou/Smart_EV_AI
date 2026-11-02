@@ -99,18 +99,20 @@ def extract(commit, destination, prefixes):
             target.chmod(0o644)  # Public source, not credentials; Docker COPY retains modes.
 
 
-def overlay(path, image, source=None):
+def overlay(path, image, source=None, automation_support=False):
     service = {'image': image}
     if source:
         service.update(build={'context': str(source)}, environment={'CONNECTOR_ABRP_READONLY': 'true',
                                                                    'CONNECTOR_PV_HISTORY_READONLY': 'true'})
+        if automation_support:
+            service['environment'].update(CONNECTOR_ALLOW_CONTROL='true', CONNECTOR_ALLOW_AUTOMATION='true')
     path.write_text(json.dumps({'services': {SERVICE: service}}))
     path.chmod(0o600)
 
 
 def save_launcher(path, command):
     lines = ['#!/bin/sh', 'set -eu']
-    for key in ('CONNECTOR_ALLOW_CONTROL', 'CONNECTOR_HOST'):
+    for key in ('CONNECTOR_ALLOW_CONTROL', 'CONNECTOR_ALLOW_AUTOMATION', 'CONNECTOR_HOST'):
         if key in ENV:
             lines.append('export ' + key + '=' + shlex.quote(ENV[key]))
     lines.append('exec ' + shlex.join(command))
@@ -128,6 +130,70 @@ def replace_connector(apply, rollback, check):
         raise
 
 
+def automation_main():
+    """Connector-only upgrade; leave the healthy ABRP sidecar and evcc running."""
+    if os.name != 'posix' or os.geteuid() != 0 or sys.version_info < (3, 11):
+        raise Stop('Run with sudo python3 on the Pi; Python 3.11+ is required.')
+    os.umask(0o077)
+    if run(['timedatectl', 'show', '-p', 'NTPSynchronized', '--value'], True) != 'yes':
+        raise Stop('Synchronize the Pi clock before enabling bounded charging support.')
+    current = inspect('container', SERVICE)
+    base, expected_hash = compose_base(current)
+    values = dict(entry.split('=', 1) for entry in current['Config'].get('Env', []) if '=' in entry)
+    for key in ('CONNECTOR_ALLOW_CONTROL', 'CONNECTOR_ALLOW_AUTOMATION', 'CONNECTOR_HOST'):
+        if key in values:
+            ENV[key] = values[key]
+    if not same_hash(run(base + ['config', '--hash', SERVICE], True), expected_hash):
+        raise Stop('Compose settings do not match the running connector; nothing was changed.')
+    before = get('/health')
+    if before.get('status') != 'running':
+        raise Stop('Connector health preflight failed.')
+    # Never remove an active local watchdog during upgrade/rollback preparation.
+    lease_probe = "import os,sqlite3; from pathlib import Path; p=Path(os.getenv('CONNECTOR_DATA_DIR','/data'))/'automation.sqlite3'; print('active' if p.exists() and sqlite3.connect(str(p)).execute('SELECT COUNT(*) FROM lease').fetchone()[0] else 'idle')"
+    if run(['docker', 'exec', SERVICE, 'python', '-c', lease_probe], True) != 'idle':
+        raise Stop('Pause automation and wait for its session to stop before upgrading.')
+    get('/api/state', 7070)
+    stamp = time.strftime('%Y%m%d-%H%M%S')
+    release = Path('/opt') / ('smart-ev-automation-release-' + stamp)
+    release.mkdir(mode=0o700)
+    extract(CONNECTOR, release, ['local_connector'])
+    run([sys.executable, '-m', 'unittest', 'discover', '-s', str(release / 'local_connector'), '-v'])
+    tag = 'smart-ev-connector:automation-' + stamp
+    old_tag = 'smart-ev-connector:before-automation-' + stamp
+    run(['docker', 'image', 'tag', current['Image'], old_tag])
+    apply_file, rollback_file = release / 'connector.override.json', release / 'rollback.override.json'
+    overlay(apply_file, tag, release / 'local_connector', automation_support=True)
+    overlay(rollback_file, old_tag)
+    apply_base, rollback_base = base + ['-f', str(apply_file)], base + ['-f', str(rollback_file)]
+    apply_command = apply_base + ['up', '-d', '--no-deps', '--no-build', SERVICE]
+    rollback_command = rollback_base + ['up', '-d', '--no-deps', '--no-build', SERVICE]
+    save_launcher(release / 'apply-connector.sh', apply_command)
+    save_launcher(release / 'rollback-connector.sh', rollback_command)
+    run(apply_base + ['build', SERVICE])
+    run(['docker', 'run', '--rm', '--network', 'none', '--read-only', '--cap-drop', 'ALL',
+         '--security-opt', 'no-new-privileges', '--entrypoint', 'python', tag, '-B', '-c',
+         "import os,automation,cloud_main; assert os.getuid()!=0; assert not automation.capable()"])
+    if inspect('container', SERVICE)['Id'] != current['Id'] or not same_hash(run(base + ['config', '--hash', SERVICE], True), expected_hash):
+        raise Stop('Connector settings changed while building; leaving them unchanged.')
+    if run(['docker', 'exec', SERVICE, 'python', '-c', lease_probe], True) != 'idle':
+        raise Stop('Automation started during the build. Pause it before retrying the upgrade.')
+    def check():
+        for _ in range(20):
+            try:
+                result = get('/health')
+                if result.get('status') == 'running' and result.get('automation_capable') is True:
+                    return
+            except Exception:
+                pass
+            time.sleep(2)
+        raise Stop('Local automation watchdog did not become ready.')
+    replace_connector(apply_command, rollback_command, check)
+    print('Installed bounded automatic charging support. evcc and ABRP were not restarted.')
+    print('Open Smart EV AI, review the plan and enable automation there. Installation does not enable your cloud plan.')
+    print('Keep this release directory. Pause automation and confirm charging stopped before using rollback.')
+    print('Rollback connector: sudo ' + str(release / 'rollback-connector.sh'))
+
+
 def main():
     if os.name != 'posix' or os.geteuid() != 0 or sys.version_info < (3, 11):
         raise Stop('Run with sudo python3 on the Pi; Python 3.11+ is required.')
@@ -139,7 +205,7 @@ def main():
     base, expected_hash = compose_base(current)
     values = dict(entry.split('=', 1) for entry in current['Config'].get('Env', []) if '=' in entry)
     # Recover only known non-secret interpolation settings from the running container.
-    for key in ('CONNECTOR_ALLOW_CONTROL', 'CONNECTOR_HOST'):
+    for key in ('CONNECTOR_ALLOW_CONTROL', 'CONNECTOR_ALLOW_AUTOMATION', 'CONNECTOR_HOST'):
         if key in values:
             ENV[key] = values[key]
     if not same_hash(run(base + ['config', '--hash', SERVICE], True), expected_hash):
@@ -295,7 +361,12 @@ def main():
 
 if __name__ == '__main__':
     try:
-        main()
+        if sys.argv[1:] == ['--automation-support']:
+            automation_main()
+        elif sys.argv[1:]:
+            raise Stop('Supported option: --automation-support (connector-only upgrade).')
+        else:
+            main()
     except (Stop, KeyboardInterrupt) as error:
         print('\nStopped: ' + (str(error) if isinstance(error, Stop) else 'interrupted locally'))
         sys.exit(1)

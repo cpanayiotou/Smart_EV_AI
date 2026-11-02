@@ -12,6 +12,18 @@ from setup_web import Handler
 
 
 class IntegrationTests(unittest.TestCase):
+    def test_daily_solar_route_and_redacted_failure(self):
+        with patch('solar.daily', return_value={'energy_kwh': 17.68}) as reader:
+            code, raw, headers = self.request('/v1/evcc/solar/daily')
+            self.assertEqual(code, 200)
+            self.assertEqual(json.loads(raw)['energy_kwh'], 17.68)
+            self.assertEqual(headers['Cache-Control'], 'no-store')
+            reader.assert_called_once()
+        with patch('solar.daily', side_effect=ValueError('private upstream error')):
+            code, raw, _ = self.request('/v1/evcc/solar/daily')
+            self.assertEqual(code, 503)
+            self.assertNotIn('private', raw)
+
     def test_independent_odometer_and_range_routes(self):
         now = time.time()
         self.payload = {'vehicle_id': 123, 'read_only': True, 'fetched_at': now, 'fields': {

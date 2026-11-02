@@ -1,7 +1,8 @@
 FROM python:3.12-alpine
+RUN apk add --no-cache tzdata
 WORKDIR /app
 RUN adduser -D -H -u 10001 connector && mkdir /data && chown connector:connector /data && chmod 700 /data
-COPY app.py abrp.py control.py pairing.py cloud_main.py setup_web.py wizard.html wizard.js wizard.css /app/
+COPY app.py abrp.py solar.py control.py pairing.py cloud_main.py setup_web.py wizard.html wizard.js wizard.css /app/
 RUN chmod 0755 /app && chmod 0644 /app/*.py /app/wizard.html /app/wizard.js /app/wizard.css
 USER connector
 RUN python -B -c "import app, abrp, cloud_main, setup_web; from pathlib import Path; [Path(p).read_bytes() for p in ('wizard.html', 'wizard.js', 'wizard.css')]"

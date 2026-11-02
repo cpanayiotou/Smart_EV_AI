@@ -4,6 +4,7 @@ import threading
 import app
 import pairing
 import abrp
+import solar
 from setup_web import Handler, Setup, local_address
 
 
@@ -26,7 +27,8 @@ def abrp_payload():
 def start_worker(token, interval, callback):
     threading.Thread(target=pairing.run, args=(token, state_payload),
                      kwargs={'health_reader': app.health, 'poll_seconds': interval,
-                             'status_callback': callback, 'abrp_reader': abrp_payload}, daemon=True).start()
+                             'status_callback': callback, 'abrp_reader': abrp_payload,
+                             'solar_reader': lambda params: solar.cloud_daily(app._evcc_get, params)}, daemon=True).start()
 
 
 if __name__ == '__main__':

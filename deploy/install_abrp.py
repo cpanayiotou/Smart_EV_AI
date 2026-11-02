@@ -18,7 +18,7 @@ import time
 import urllib.request
 
 ADAPTER = '703c42af787be38bea4bf516e31671d0158b54b5'
-CONNECTOR = '3415e48578fdd08f6746481828d5054c57289c03'
+CONNECTOR = '2522c8457520f57f8b1eb27c166bc02950ecdacc'
 PREVIOUS_ADAPTER_SHA256 = 'a8fddc56d723c9bf7d4c0db10129259c18ec87b2ab2ac04781c58cf3cc86a4ca'
 REPO = 'cpanayiotou/Smart_EV_AI'
 SERVICE = 'smart-ev-connector'
@@ -102,7 +102,8 @@ def extract(commit, destination, prefixes):
 def overlay(path, image, source=None):
     service = {'image': image}
     if source:
-        service.update(build={'context': str(source)}, environment={'CONNECTOR_ABRP_READONLY': 'true'})
+        service.update(build={'context': str(source)}, environment={'CONNECTOR_ABRP_READONLY': 'true',
+                                                                   'CONNECTOR_PV_HISTORY_READONLY': 'true'})
     path.write_text(json.dumps({'services': {SERVICE: service}}))
     path.chmod(0o600)
 
@@ -273,6 +274,8 @@ def main():
     print('Last-known JSON: http://smart-ev-ai.local:7080/v1/abrp/display')
     print('Full telemetry: http://smart-ev-ai.local:7080/v1/abrp/fields')
     print('Cloud telemetry: abrp.fields capability enabled for the existing paired Smart EV AI cloud.')
+    print('Daily solar: http://smart-ev-ai.local:7080/v1/evcc/solar/daily')
+    print('Read-only daily solar cloud capability enabled; the matching cloud receiver must be published.')
     print('The matching cloud receiver must be published before readings appear on its dashboard.')
     try:
         fields = get('/v1/abrp/fields')['fields']

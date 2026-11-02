@@ -9,6 +9,21 @@ SPEC.loader.exec_module(pairing)
 
 
 class PairingTests(unittest.TestCase):
+    def test_solar_roundtrip_and_disabled_reader(self):
+        for enabled in ['true', 'false']:
+            with patch.dict(pairing.os.environ, {'CONNECTOR_PV_HISTORY_READONLY': enabled}), \
+                    patch.object(pairing, '_request') as request, \
+                    patch.object(pairing.time, 'sleep', side_effect=InterruptedError):
+                request.side_effect = [{'requests': [{'id': 'id', 'command': 'evcc.pv_daily', 'params': {'date': 'test'}}]}, {'ok': True}]
+                reader = lambda params: {'energy_kwh': 2} if params == {'date': 'test'} else self.fail('wrong params')
+                if enabled == 'false':
+                    reader = lambda _: self.fail('disabled reader must not run')
+                with self.assertRaises(InterruptedError):
+                    pairing.run('token', lambda: self.fail('state must not be read'), solar_reader=reader)
+                body = request.call_args.args[2]
+                self.assertEqual(body['ok'], enabled == 'true')
+                self.assertEqual(body['command'], 'evcc.pv_daily')
+
     def test_https_required(self):
         with patch.object(pairing, "CLOUD_URL", "http://example.test"):
             with self.assertRaises(ValueError):
@@ -61,7 +76,7 @@ class PairingTests(unittest.TestCase):
             self.assertEqual(body['latency_ms'], 2)
 
     def test_no_control_commands_in_allowlist(self):
-        self.assertEqual(pairing.ALLOWED_COMMANDS, {"evcc.health", "evcc.state", "abrp.fields"})
+        self.assertEqual(pairing.ALLOWED_COMMANDS, {"evcc.health", "evcc.state", "abrp.fields", "evcc.pv_daily"})
         source = pathlib.Path(__file__).with_name("pairing.py").read_text()
         for forbidden in ["maxcurrent", "mode/smart", "mode/now", "charge_start", "charge_stop"]:
             self.assertNotIn(forbidden, source.lower())

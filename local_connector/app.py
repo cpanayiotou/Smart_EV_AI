@@ -52,7 +52,9 @@ def _evcc_get(path: str) -> tuple[int, Any, float]:
         from pairing import NoRedirect
         opener = urllib.request.build_opener(urllib.request.ProxyHandler({}), NoRedirect())
         with opener.open(req, timeout=TIMEOUT) as response:
-            raw = response.read()
+            raw = response.read(2097153)
+            if len(raw) > 2097152:
+                raise ValueError('evcc response exceeds size limit')
             latency_ms = (time.monotonic() - started) * 1000
             return response.status, json.loads(raw), latency_ms
     except urllib.error.HTTPError as exc:
@@ -96,6 +98,13 @@ class Handler(BaseHTTPRequestHandler):
         self.wfile.write(payload)
 
     def do_GET(self) -> None:
+        if self.path == '/v1/evcc/solar/daily':
+            try:
+                import solar
+                self._json(200, solar.daily(_evcc_get))
+            except Exception:
+                self._json(503, {'available': False, 'reason': 'solar_history_unavailable'})
+            return
         if self.path in ('/v1/abrp/fields', '/v1/abrp/odometer', '/v1/abrp/range'):
             status, payload = abrp.read_fields()
             if self.path != '/v1/abrp/fields':

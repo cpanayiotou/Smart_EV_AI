@@ -15,6 +15,17 @@ SPEC.loader.exec_module(installer)
 
 
 class InstallerTests(unittest.TestCase):
+    def test_automation_support_requires_explicit_overlay_option(self):
+        with tempfile.TemporaryDirectory() as folder:
+            path = Path(folder) / 'override.json'
+            installer.overlay(path, 'reviewed-image', Path('/release/local_connector'), automation_support=True)
+            service = json.loads(path.read_text())['services']
+            self.assertEqual(list(service), ['smart-ev-connector'])
+            self.assertEqual(service['smart-ev-connector']['environment']['CONNECTOR_ALLOW_AUTOMATION'], 'true')
+            self.assertEqual(service['smart-ev-connector']['environment']['CONNECTOR_ALLOW_CONTROL'], 'true')
+            installer.overlay(path, 'previous-image')
+            self.assertEqual(json.loads(path.read_text())['services']['smart-ev-connector'], {'image': 'previous-image'})
+
     def test_extracted_source_is_readable_despite_private_umask(self):
         archive = io.BytesIO()
         with tarfile.open(fileobj=archive, mode='w:gz') as stream:

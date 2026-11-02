@@ -5,6 +5,7 @@ import app
 import pairing
 import abrp
 import solar
+import automation
 from setup_web import Handler, Setup, local_address
 
 
@@ -35,6 +36,7 @@ if __name__ == '__main__':
     host = os.getenv('CONNECTOR_HOST', '0.0.0.0')
     if host != '0.0.0.0' and not local_address(host):
         raise SystemExit('CONNECTOR_HOST must be 0.0.0.0, loopback or a private LAN IP')
+    automation.start_watchdog()
     state = Setup(os.getenv('CONNECTOR_DATA_DIR', '/data'), start_worker)
     server = app.ThreadingHTTPServer((host, app.LISTEN_PORT), Handler)
     server.setup_state = state

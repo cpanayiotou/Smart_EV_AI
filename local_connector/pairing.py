@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import json
 import control
+import automation
 import os
 import ssl
 import time
@@ -53,6 +54,9 @@ def _request(path: str, method: str = "GET", body: dict[str, Any] | None = None,
     headers = {"Accept": "application/json", "Content-Type": "application/json"}
     if path == '/api/public/local-connectors/work' and control.enabled():
         headers['X-Smart-EV-Control'] = 'mode-v1'
+        headers['X-Smart-EV-Target'] = 'target-v1'
+    if path == '/api/public/local-connectors/work' and automation.capable():
+        headers['X-Smart-EV-Automation'] = 'lease-v1'
     if (path == '/api/public/local-connectors/work'
             and os.getenv('CONNECTOR_ABRP_READONLY', 'false').lower() == 'true'):
         headers['X-Smart-EV-Telemetry'] = 'abrp-fields-v1'
@@ -127,9 +131,10 @@ def run(token: str, state_reader: Callable[[], dict[str, Any]],
                 request_id = item.get("id")
                 if not isinstance(command, str) or not isinstance(request_id, str):
                     continue
-                if command == 'evcc.set_mode':
+                if command in ('evcc.set_mode', 'evcc.automation', 'evcc.set_target'):
                     try:
-                        data = control.execute(item, lambda rid: _request(
+                        executor = automation.execute if command == 'evcc.automation' else control.execute
+                        data = executor(item, lambda rid: _request(
                             '/api/public/local-connectors/authorize', 'POST',
                             {'request_id': rid}, token=token))
                     except Exception as exc:

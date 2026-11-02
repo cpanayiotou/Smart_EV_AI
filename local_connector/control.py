@@ -1,4 +1,4 @@
-"""Narrow opt-in manual mode control. No arbitrary URLs, currents or limits."""
+"""Opt-in mode and bounded daily session-target control; no arbitrary URLs."""
 from datetime import datetime
 from contextlib import closing
 import os
@@ -7,8 +7,12 @@ import sqlite3
 import time
 import urllib.request
 import uuid
+import threading
 
 import app
+
+# Serialize all writers with the local automation watchdog.
+WRITE_LOCK = threading.RLock()
 
 
 def enabled():
@@ -89,6 +93,85 @@ def post_mode(index, mode):
 
 
 def execute(item, authorize, directory=None):
+    with WRITE_LOCK:
+        if isinstance(item, dict) and item.get('command') == 'evcc.set_target':
+            return _execute_target(item, authorize, directory)
+        return _execute(item, authorize, directory)
+
+
+def validate_target(item):
+    params = item.get('params')
+    if not isinstance(params, dict) or set(params) != {'loadpoint', 'target_soc', 'expected_limit_soc', 'expires_at'}:
+        raise ControlError('Invalid target parameters')
+    if (type(params['target_soc']) is not int or not 1 <= params['target_soc'] <= 80
+            or type(params['expected_limit_soc']) is not int or not 1 <= params['expected_limit_soc'] <= 100):
+        raise ControlError('Daily target must be 1 to 80 percent with a known previous limit')
+    identifier, index, _ = validate({'id': item.get('id'), 'command': 'evcc.set_mode',
+                                   'params': {'loadpoint': params['loadpoint'], 'mode': 'off',
+                                              'expires_at': params['expires_at']}})
+    return identifier, index, params['target_soc'], params['expected_limit_soc']
+
+
+def target_guard(index, expected, root):
+    import automation
+    if automation.read(root) is not None:
+        raise ControlError('Pause automation and confirm it stopped before changing the target')
+    current = state_loadpoint(index)
+    if (current.get('connected') is not True or current.get('charging') is not False
+            or current.get('mode') != 'off'):
+        raise ControlError('Target requires the car connected with charging off')
+    limit = current.get('effectiveLimitSoc')
+    if type(limit) not in (int, float) or limit != expected:
+        raise ControlError('evcc limit changed; refresh the plan before applying')
+
+
+def post_target(index, target):
+    if type(index) is not int or not 1 <= index <= 20 or type(target) is not int or not 1 <= target <= 80:
+        raise ControlError('Invalid daily target')
+    if not app._is_private_target(app.EVCC_URL):
+        raise ControlError('evcc address must be local')
+    from pairing import NoRedirect
+    request = urllib.request.Request(
+        f'{app.EVCC_URL}/api/loadpoints/{index}/limitsoc/{target}', method='POST',
+        headers={'Accept': 'application/json'})
+    opener = urllib.request.build_opener(urllib.request.ProxyHandler({}), NoRedirect())
+    with opener.open(request, timeout=app.TIMEOUT) as response:
+        if response.status != 200:
+            raise ControlError('evcc did not accept the target')
+        response.read(4096)
+
+
+def _execute_target(item, authorize, directory=None):
+    if not enabled():
+        raise ControlError('Local charging controls are disabled')
+    identifier, index, target, expected = validate_target(item)
+    root = directory or os.getenv('CONNECTOR_DATA_DIR', '/data')
+    target_guard(index, expected, root)
+    reserve(identifier, root)
+    grant = authorize(identifier)
+    if not isinstance(grant, dict) or grant.get('authorized') is not True:
+        raise ControlError('Cloud target authorization denied')
+    if not enabled():
+        raise ControlError('Local charging controls are disabled')
+    # Recheck the exact request, state and lease after the cloud round trip.
+    if validate_target(item) != (identifier, index, target, expected):
+        raise ControlError('Target request changed during authorization')
+    target_guard(index, expected, root)
+    post_target(index, target)
+    for attempt in range(3):
+        current = state_loadpoint(index)
+        if (current.get('connected') is True and current.get('charging') is False
+                and current.get('mode') == 'off'
+                and type(current.get('limitSoc')) in (int, float)
+                and type(current.get('effectiveLimitSoc')) in (int, float)
+                and current['limitSoc'] == target and current['effectiveLimitSoc'] == target):
+            return {'loadpoint': index, 'target_soc': target, 'verified': True, 'mode': 'off'}
+        if attempt < 2:
+            time.sleep(0.5)
+    raise ControlError('Target sent but not verified; check evcc before retrying')
+
+
+def _execute(item, authorize, directory=None):
     if not enabled():
         raise ControlError('Local charging controls are disabled')
     identifier, index, mode = validate(item)
@@ -103,7 +186,10 @@ def execute(item, authorize, directory=None):
     validate(item)
     if not enabled():
         raise ControlError('Local charging controls are disabled')
+    # Explicit manual authorization takes ownership from an automated run.
+    import automation
     post_mode(index, mode)
+    automation.relinquish(directory or os.getenv('CONNECTOR_DATA_DIR', '/data'), index)
     for attempt in range(3):
         if state_loadpoint(index).get('mode') == mode:
             return {'loadpoint': index, 'mode': mode, 'verified': True}

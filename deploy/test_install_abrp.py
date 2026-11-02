@@ -89,7 +89,8 @@ class InstallerTests(unittest.TestCase):
             installer.overlay(path, 'reviewed-image', Path('/release/local_connector'))
             service = json.loads(path.read_text())['services']
             self.assertEqual(list(service), ['smart-ev-connector'])
-            self.assertEqual(service['smart-ev-connector']['environment'], {'CONNECTOR_ABRP_READONLY': 'true'})
+            self.assertEqual(service['smart-ev-connector']['environment'], {
+                'CONNECTOR_ABRP_READONLY': 'true', 'CONNECTOR_PV_HISTORY_READONLY': 'true'})
             self.assertNotIn('volumes', service['smart-ev-connector'])
             self.assertNotIn('network_mode', service['smart-ev-connector'])
 

@@ -37,6 +37,9 @@ Observe a later fresh evcc state with charging=true and positive chargePower
 before reporting that charging started.
 
 Start requires a connected loadpoint, charging=false and mode=off. It cannot take
+over an unbounded loadpoint: a finite effectiveLimitSoc (1..100%) or limitEnergy
+(greater than zero, at most 200 kWh) must already exist in evcc. The connector does
+not set these limits. Removing them during an owned run triggers its stop. It cannot take
 over a manual or PV charge. One run can own the connector. Renew/stop must match
 the stored run, loadpoint and exact original deadline. A finished run ID cannot
 restart. An ambiguous command write retains ownership until a stop is confirmed.

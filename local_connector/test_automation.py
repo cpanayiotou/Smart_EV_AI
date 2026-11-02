@@ -24,7 +24,7 @@ class AutomationTests(unittest.TestCase):
         self.env.start(); self.addCleanup(self.env.stop)
         self.cap = patch('automation.capable', return_value=True)
         self.cap.start(); self.addCleanup(self.cap.stop)
-        self.state = {'connected': True, 'charging': False, 'mode': 'off'}
+        self.state = {'connected': True, 'charging': False, 'mode': 'off', 'effectiveLimitSoc': 80}
         self.reader = patch('control.state_loadpoint', side_effect=lambda _: dict(self.state))
         self.reader.start(); self.addCleanup(self.reader.stop)
         self.writer = patch('control.post_mode', side_effect=lambda _, m: self.state.update(mode=m))
@@ -56,6 +56,17 @@ class AutomationTests(unittest.TestCase):
         with patch('automation.capable', return_value=False), self.assertRaises(control.ControlError):
             self.execute()
         self.grant.assert_not_called(); self.write.assert_not_called()
+
+    def test_native_evcc_limit_required_and_removal_stops_owned_run(self):
+        for value in (None, 0, True, float('nan'), 101):
+            self.state['effectiveLimitSoc'] = value
+            with self.assertRaises(control.ControlError): self.execute()
+        self.write.assert_not_called()
+        self.state['effectiveLimitSoc'] = 80
+        self.execute()
+        self.state['effectiveLimitSoc'] = 0
+        a.tick(self.root)
+        self.assertEqual(self.state['mode'], 'off')
 
     def test_manual_pv_now_or_unknown_state_cannot_be_taken_over(self):
         for state in ({'mode': 'pv'}, {'mode': 'now'}, {'charging': None}, {'connected': False}):

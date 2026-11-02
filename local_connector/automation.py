@@ -6,6 +6,7 @@ An acknowledged mode is NOT proof of charging. Cloud must observe charging power
 from contextlib import closing
 from datetime import datetime
 import os
+import math
 from pathlib import Path
 import sqlite3
 import threading
@@ -113,6 +114,14 @@ def owned(p, lease):
     return lease and all(p[k] == lease[k] for k in ('run_id', 'loadpoint', 'deadline'))
 
 
+def native_limit(state):
+    # Retain a local evcc limit as a second line of protection; never set one here.
+    soc, energy = state.get('effectiveLimitSoc'), state.get('limitEnergy')
+    valid_soc = type(soc) in (int, float) and math.isfinite(soc) and 0 < soc <= 100
+    valid_energy = type(energy) in (int, float) and math.isfinite(energy) and 0 < energy <= 200
+    return valid_soc or valid_energy
+
+
 def stop_owned(root, lease):
     state = control.state_loadpoint(lease['loadpoint'])
     if state.get('mode') == 'now':
@@ -139,7 +148,7 @@ def tick(root=None, recovering=False):
             raise control.ControlError('Cannot verify automation mode')
         expiry = min(instant(lease['lease_until']), instant(lease['deadline']))
         mono = _monotonic_expiry.get(lease['run_id'], -1)
-        if recovering or not enabled() or state.get('connected') is not True or time.time() >= expiry or time.monotonic() >= mono:
+        if recovering or not enabled() or not native_limit(state) or state.get('connected') is not True or time.time() >= expiry or time.monotonic() >= mono:
             stop_owned(root, lease)
 
 
@@ -156,6 +165,8 @@ def execute(item, authorize, root=None):
         elif not owned(p, lease):
             raise control.ControlError('Automation run does not own this loadpoint')
         state = control.state_loadpoint(p['loadpoint'])
+        if p['action'] != 'stop' and not native_limit(state):
+            raise control.ControlError('A local evcc charge limit is required')
         if p['action'] == 'start' and (state.get('mode') != 'off' or state.get('connected') is not True or state.get('charging') is not False):
             raise control.ControlError('Start requires a connected, stopped loadpoint in off mode')
         if p['action'] == 'renew' and (state.get('mode') != 'now' or state.get('connected') is not True or time.time() >= instant(lease['lease_until']) or time.monotonic() >= _monotonic_expiry.get(p['run_id'], -1)):
@@ -169,6 +180,8 @@ def execute(item, authorize, root=None):
             raise control.ControlError('Local automatic charging is disabled')
         # Re-read after the cloud round trip; a driver may have taken over.
         current = control.state_loadpoint(p['loadpoint'])
+        if p['action'] != 'stop' and not native_limit(current):
+            raise control.ControlError('Local evcc charge limit changed before authorization')
         if p['action'] == 'start':
             if current.get('mode') != 'off' or current.get('connected') is not True or current.get('charging') is not False:
                 raise control.ControlError('Loadpoint changed before start')
